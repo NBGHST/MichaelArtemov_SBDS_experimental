@@ -38,10 +38,10 @@ Spatial_Birth_Death_Simulator/
 
 ## 2. Сборка расширения
 
-Из основной директории (`Spatial_Birth_Death_Simulator/`) выполните:
+Из основной директории (`Spatial_Birth_Death_Simulator/`) выполните (**или запустите full_setup.sh и дальше запускайте ноутбуки под venv_SBDS**):
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt --break-system-packages
 python setup.py build_ext --inplace
 ```
 
@@ -72,6 +72,7 @@ chmod +x clean.py
 После сборки вы можете импортировать расширение:
 
 ```python
+import sys
 sys.path.append("ваш_путь_до_папки_с_проектом/Spatial_Birth_Death_Simulator")
 import simulation  # или: from simulation import PyGrid1, PyGrid2, PyGrid3
 ```

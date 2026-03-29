@@ -8,6 +8,7 @@ __pycache__/
 
 # Virtual environment
 venv
+.venv_SBDS
 
 # Cython generated files
 /simulation/SpatialBirthDeathWrapper.cpp

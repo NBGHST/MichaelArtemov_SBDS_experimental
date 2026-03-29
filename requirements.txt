@@ -3,6 +3,7 @@ numpy>=2.2.4
 scipy>=1.15.2
 pandas>=2.2.3
 setuptools>=76.1.0
-
+tqdm
 matplotlib>=3.10.1
 seaborn>=0.13.2
+ipykernel>=6.29.3

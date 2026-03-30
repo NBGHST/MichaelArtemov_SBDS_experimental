@@ -91,6 +91,24 @@ void forNeighbors(const std::array<int, DIM> &centerIdx, const std::array<int, D
         }
     }
 }
+template<bool known_total>
+int sample_discrete(const std::vector<double>& rates, std::mt19937& rng, double total = 0) {
+    if constexpr (!known_total) {
+        total = 0.0;
+        for (double r : rates) {
+            total += r;
+        }
+    }
+    double u = std::uniform_real_distribution<double>(0.0, total)(rng);
+    double acc = 0.0;
+    for (int i = 0; i < (int)rates.size(); ++i) {
+        acc += rates[i];
+        if (u < acc) {
+            return i;
+        }
+    }
+    return rates.size() - 1;
+}
 
 template <int DIM>
 Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<int, DIM> &cellCount, bool isPeriodic,
@@ -386,8 +404,8 @@ void Grid<DIM>::spawn_random() {
     for (int i = 0; i < total_num_cells_; ++i) {
         cellRateVec[i] = cells_[i].cellBirthRate;
     }
-    std::discrete_distribution<int> cellDist(cellRateVec.begin(), cellRateVec.end());
-    const int parentCellIndex = cellDist(rng_);
+    //std::discrete_distribution<int> cellDist(cellRateVec.begin(), cellRateVec.end());
+    const int parentCellIndex = sample_discrete<true>(cellRateVec, rng_, total_birth_rate_);
     Cell<DIM> &parentCell = cells_[parentCellIndex];
     std::discrete_distribution<int> spDist(parentCell.cellBirthRateBySpecies.begin(),
                                            parentCell.cellBirthRateBySpecies.end());
@@ -416,16 +434,16 @@ void Grid<DIM>::kill_random() {
     for (int i = 0; i < total_num_cells_; ++i) {
         cellRateVec[i] = cells_[i].cellDeathRate;
     }
-    std::discrete_distribution<int> cellDist(cellRateVec.begin(), cellRateVec.end());
-    const int cellIndex = cellDist(rng_);
+    //std::discrete_distribution<int> cellDist(cellRateVec.begin(), cellRateVec.end());
+    const int cellIndex = sample_discrete<true>(cellRateVec, rng_, total_death_rate_);
     Cell<DIM> &cell = cells_[cellIndex];
-    std::discrete_distribution<int> spDist(cell.cellDeathRateBySpecies.begin(), cell.cellDeathRateBySpecies.end());
-    const int s = spDist(rng_);
+    //std::discrete_distribution<int> spDist(cell.cellDeathRateBySpecies.begin(), cell.cellDeathRateBySpecies.end());
+    const int s = sample_discrete<true>(cell.cellDeathRateBySpecies, rng_, cell.cellDeathRate);
     if (cell.population[s] == 0) {
         return;
     }
-    std::discrete_distribution<int> victimDist(cell.deathRates[s].begin(), cell.deathRates[s].end());
-    const int victimIdx = victimDist(rng_);
+    //std::discrete_distribution<int> victimDist(cell.deathRates[s].begin(), cell.deathRates[s].end());
+    const int victimIdx = sample_discrete<true>(cell.deathRates[s], rng_, cell.cellDeathRateBySpecies[s]);
     const std::array<int, DIM> cIdx = unflattenIdx(cellIndex);
     kill_at(s, cIdx, victimIdx);
 }

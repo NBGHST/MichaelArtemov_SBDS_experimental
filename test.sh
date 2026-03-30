@@ -14,6 +14,7 @@ for branch in "${branches[@]}"; do
         echo "Starting $branch..."
         eval "./update.sh"
         eval "python3 ./benchmark.py"
+        echo "on branch $branch"
     else
         echo "Error: no such branch as $branch"
     fi

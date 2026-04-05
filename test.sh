@@ -12,7 +12,9 @@ for branch in "${branches[@]}"; do
     
     if [ $? -eq 0 ]; then
         echo "Starting $branch..."
+        eval "./update.sh"
         eval "python3 ./benchmark.py"
+        echo "on branch $branch"
     else
         echo "Error: no such branch as $branch"
     fi

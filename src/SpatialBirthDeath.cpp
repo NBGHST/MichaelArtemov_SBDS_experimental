@@ -124,9 +124,10 @@ Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<
       periodic_(isPeriodic),
       rng_(seed),
       realtime_limit_(rtimeLimit) {
-
+    
     init_time_ = std::chrono::system_clock::now();
-
+    
+    species_pop_.resize(M_);
     b_ = birthRates;
     d_ = deathRates;
 
@@ -295,6 +296,7 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
     cell.deathRates[s].push_back(d_[s]);
     ++cell.population[s];
     ++total_population_;
+    ++species_pop_[s];
     cell.cellBirthRateBySpecies[s] += b_[s];
     cell.cellBirthRate += b_[s];
     total_birth_rate_ += b_[s];
@@ -341,6 +343,7 @@ void Grid<DIM>::kill_at(int s, const std::array<int, DIM> &cIdx, int victimIdx) 
     const double victimRate = cell.deathRates[s][victimIdx];
     --cell.population[s];
     --total_population_;
+    --species_pop_[s];
     cell.cellDeathRateBySpecies[s] -= victimRate;
     cell.cellDeathRate -= victimRate;
     total_death_rate_ -= victimRate;

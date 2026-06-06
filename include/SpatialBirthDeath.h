@@ -146,6 +146,7 @@ public:
     std::vector<std::vector<std::array<int, DIM>>> cull_;  ///< Neighbor cell search range: cull[s1][s2][dim]
 
     std::vector<Cell<DIM>> cells_;  ///< The grid cells
+    std::vector<int> species_pop_;
     int total_num_cells_;           ///< Total number of cells (product of cell_count[dim])
 
     double total_birth_rate_ = {0.0};  ///< Global sum of birth rates for event selection

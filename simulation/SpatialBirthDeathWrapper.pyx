@@ -324,6 +324,7 @@ cdef extern from "SpatialBirthDeath.h":
         double time_
         int    event_count_
         vector[Cell1] cells_
+        vector[int] species_pop_
 
     cdef cppclass Grid2 "Grid<2>":
         Grid2(int M,
@@ -361,6 +362,7 @@ cdef extern from "SpatialBirthDeath.h":
         double time_
         int    event_count_
         vector[Cell2] cells_
+        vector[int] species_pop_
 
     cdef cppclass Grid3 "Grid<3>":
         Grid3(int M,
@@ -398,10 +400,15 @@ cdef extern from "SpatialBirthDeath.h":
         double time_
         int    event_count_
         vector[Cell3] cells_
+        vector[int] species_pop_
 
 # 7) Base class for PyGrid classes to avoid code duplication
 cdef class PyGridBase:
     # These properties and methods are common to all dimensions
+    @property
+    def species_pop(self):
+        return self._get_species_pop()
+
     @property
     def total_birth_rate(self):
         return self._get_total_birth_rate()
@@ -491,6 +498,9 @@ cdef class PyGridBase:
     
     cdef list _get_cell_population(self, int cell_index):
         raise NotImplementedError()
+    
+    cdef list _get_species_pop(self):
+        raise NotImplementedError()
 
 # 8) Updated PyGrid classes inheriting from PyGridBase
 
@@ -568,6 +578,14 @@ cdef class PyGrid1(PyGridBase):
     
     cdef int _get_total_population(self):
         return self.cpp_grid.total_population_
+    
+    cdef list _get_species_pop(self):
+        cdef vector[int] pop = self.cpp_grid.species_pop_
+        cdef int m = pop.size()
+        cdef list out = [0] * m
+        for s in range(m):
+            out[s] = pop[s]
+        return out
     
     cdef double _get_time(self):
         return self.cpp_grid.time_
@@ -727,6 +745,14 @@ cdef class PyGrid2(PyGridBase):
     cdef int _get_total_population(self):
         return self.cpp_grid.total_population_
     
+    cdef list _get_species_pop(self):
+        cdef vector[int] pop = self.cpp_grid.species_pop_
+        cdef int m = pop.size()
+        cdef list out = [0] * m
+        for s in range(m):
+            out[s] = pop[s]
+        return out
+    
     cdef double _get_time(self):
         return self.cpp_grid.time_
     
@@ -884,6 +910,14 @@ cdef class PyGrid3(PyGridBase):
     
     cdef int _get_total_population(self):
         return self.cpp_grid.total_population_
+    
+    cdef list _get_species_pop(self):
+        cdef vector[int] pop = self.cpp_grid.species_pop_
+        cdef int m = pop.size()
+        cdef list out = [0] * m
+        for s in range(m):
+            out[s] = pop[s]
+        return out
     
     cdef double _get_time(self):
         return self.cpp_grid.time_

@@ -64,17 +64,24 @@ def print_comparison(all_results, ref_branch, cur_name):
         match_str = "YES" if match else "NO"
         
         print(f"{name:<38} | {dim:<3} | {per:<3} | {grid:<12} | {init:<5} | {evs:<7} | {pop_r:<10} | {pop_c:<10} | {match_str:<6}")
+        
+        # Second line for ALL grid parameters
+        gp = ref_c.get("grid_params", {})
+        if gp:
+            param_str = f"M={gp.get('M')}, areaLen={gp.get('areaLen')}, bRates={gp.get('birthRates')}, dRates={gp.get('deathRates')}, cutoffs={gp.get('cutoffs')}"
+            print(f"   ↳ Params: {param_str}")
+            print("-" * 130)
     
     print("\n[ BENCHMARKS (Events / Sec) ]")
     header = f"{'Scenario':<40}"
     for b in all_results.keys():
         header += f" | {b:<12}"
-    header += f" | Speedup (vs {ref_branch}) | Speedup (vs cpp_opt)"
+    header += f" | Speedup (prev_best vs cpp_opt) | Speedup ({cur_name} vs cpp_opt)"
     print(header)
     print("-" * 150)
     
-    avg_speedup_ref = 0
-    avg_speedup_cpp = 0
+    avg_speedup_ref_cpp = 0
+    avg_speedup_cur_cpp = 0
     count = 0
     
     def format_rate(r):
@@ -94,20 +101,20 @@ def print_comparison(all_results, ref_branch, cur_name):
             rate = all_results[b]["benchmark"][i]["rate"]
             row += f" | {format_rate(rate):<12}"
             
-        speedup_ref = cur_rate / ref_rate if ref_rate > 0 else 0
-        speedup_cpp = cur_rate / cpp_rate if cpp_rate > 0 else 0
+        speedup_ref_cpp = ref_rate / cpp_rate if cpp_rate > 0 else 0
+        speedup_cur_cpp = cur_rate / cpp_rate if cpp_rate > 0 else 0
         
-        avg_speedup_ref += speedup_ref
-        avg_speedup_cpp += speedup_cpp
+        avg_speedup_ref_cpp += speedup_ref_cpp
+        avg_speedup_cur_cpp += speedup_cur_cpp
         count += 1
         
-        row += f" | {speedup_ref:.2f}x"
-        row += f" | {speedup_cpp:.2f}x"
+        row += f" | {speedup_ref_cpp:.2f}x"
+        row += f" | {speedup_cur_cpp:.2f}x"
         print(row)
 
     if count > 0:
         print("-" * 150)
-        print(f"AVERAGE SPEEDUP (vs {ref_branch}): {avg_speedup_ref/count:.2f}x | (vs cpp_opt): {avg_speedup_cpp/count:.2f}x")
+        print(f"AVERAGE SPEEDUP (prev_best vs cpp_opt): {avg_speedup_ref_cpp/count:.2f}x | ({cur_name} vs cpp_opt): {avg_speedup_cur_cpp/count:.2f}x")
 
     if not all_match:
         print("\n!!! WARNING: Correctness mismatch detected! !!!")

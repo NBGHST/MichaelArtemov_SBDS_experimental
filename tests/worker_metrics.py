@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import simulation
 
 def make_scenario_1():
-    L = 5.0
+    L = 20.0
     M = 2
     seed = 42
     birth_rates = [0.3, 0.4]
@@ -43,7 +43,7 @@ def make_scenario_1():
 
     np.random.seed(seed)
     coords = [
-        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(50)]
+        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(800)]
         for _ in range(M)
     ]
 
@@ -62,7 +62,7 @@ def make_scenario_1():
     }
 
 def make_scenario_2():
-    L = 2.0
+    L = 4.0
     M = 2
     seed = 42
     birth_rates = [0.4, 0.4]
@@ -96,7 +96,7 @@ def make_scenario_2():
 
     np.random.seed(seed)
     coords = [
-        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(150)]
+        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(600)]
         for _ in range(M)
     ]
 
@@ -115,7 +115,7 @@ def make_scenario_2():
     }
 
 def make_scenario_3():
-    L = 5.0
+    L = 10.0
     M = 1
     seed = 123
     birth_rates = [0.5]
@@ -136,7 +136,7 @@ def make_scenario_3():
     cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
 
     np.random.seed(seed)
-    coords = [[[np.random.uniform(0, L)] for _ in range(150)]]
+    coords = [[[np.random.uniform(0, L)] for _ in range(600)]]
 
     return {
         "name": "Scenario 3 (1D, periodic)",
@@ -153,7 +153,7 @@ def make_scenario_3():
     }
 
 def make_scenario_4():
-    L = 5.0
+    L = 10.0
     M = 1
     seed = 42
     birth_rates = [0.4]
@@ -174,7 +174,7 @@ def make_scenario_4():
     cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
 
     np.random.seed(seed)
-    coords = [[[np.random.uniform(0, L), np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(100)]]
+    coords = [[[np.random.uniform(0, L), np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(800)]]
 
     return {
         "name": "Scenario 4 (3D, non-periodic)",
@@ -191,7 +191,7 @@ def make_scenario_4():
     }
 
 def make_scenario_5():
-    L = 5.0
+    L = 10.0
     M = 2
     seed = 42
     birth_rates = [0.3, 0.4]
@@ -225,7 +225,7 @@ def make_scenario_5():
 
     np.random.seed(seed)
     coords = [
-        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(50)]
+        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(800)]
         for _ in range(M)
     ]
 
@@ -245,7 +245,7 @@ def make_scenario_5():
 
 def make_scenario_6():
     """1D single-species non-periodic scenario."""
-    L = 5.0
+    L = 10.0
     M = 1
     seed = 123
     birth_rates = [0.5]
@@ -266,7 +266,7 @@ def make_scenario_6():
     cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
 
     np.random.seed(seed)
-    coords = [[[np.random.uniform(0, L)] for _ in range(150)]]
+    coords = [[[np.random.uniform(0, L)] for _ in range(600)]]
 
     return {
         "name": "Scenario 6 (1D, non-periodic)",
@@ -284,7 +284,7 @@ def make_scenario_6():
 
 
 def make_scenario_7():
-    L = 5.0
+    L = 10.0
     M = 1
     seed = 42
     birth_rates = [0.4]
@@ -305,7 +305,7 @@ def make_scenario_7():
     cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
 
     np.random.seed(seed)
-    coords = [[[np.random.uniform(0, L), np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(100)]]
+    coords = [[[np.random.uniform(0, L), np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(800)]]
 
     return {
         "name": "Scenario 7 (3D, periodic)",
@@ -360,6 +360,15 @@ def run_scenario(scenario_def, is_benchmark=False):
     grid.run_events(run_events)
     elapsed = time.perf_counter() - t0
 
+    grid_params = {
+        "M": params.get("M", 1),
+        "areaLen": params.get("areaLen", []),
+        "birthRates": params.get("birthRates", []),
+        "deathRates": params.get("deathRates", []),
+        "cutoffs": params.get("cutoffs", []),
+        "run_events": run_events
+    }
+    
     return {
         "name": scenario_def["name"],
         "dim": dim,
@@ -371,7 +380,8 @@ def run_scenario(scenario_def, is_benchmark=False):
         "species_pop": grid.species_pop,
         "elapsed": elapsed,
         "events": run_events,
-        "rate": run_events / elapsed if elapsed > 0 else 0
+        "rate": run_events / elapsed if elapsed > 0 else 0,
+        "grid_params": grid_params
     }
 
 def main():

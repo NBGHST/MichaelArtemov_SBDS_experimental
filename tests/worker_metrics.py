@@ -3,7 +3,7 @@ import sys
 import os
 import json
 import numpy as np
-from scipy.stats import rayleigh
+from scipy.stats import rayleigh, halfnorm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import simulation
@@ -321,6 +321,146 @@ def make_scenario_7():
         }
     }
 
+
+def make_scenario_8():
+    # Heteromyopia (1D)
+    L = 10.0
+    M = 2
+    seed = 42
+    birth_rates = [0.4, 0.4]
+    natural_death_rates = [0.2, 0.2]
+    competition_matrix = [0.001, 0.001, 0.001, 0.001]
+    sigma_m = [0.06, 0.06]
+    sigma_w = np.array([
+        [0.15, 0.01],
+        [0.01, 0.15],
+    ])
+
+    const = np.sqrt(2 * np.pi)
+    def normal_1d_radial(r, sigma):
+        return (1 / (const * sigma)) * np.exp(-r**2 / (2 * sigma**2))
+
+    q_values = np.arange(0, 1.0, 0.001)
+
+    birth_inverse_values = []
+    for j in range(M):
+        inverse_vals = halfnorm.ppf(q_values, scale=sigma_m[j])
+        birth_inverse_values.append(inverse_vals.tolist())
+
+    death_r_values = []
+    death_density_values = []
+
+    for k in range(M):
+        r_values_row = []
+        density_row = []
+
+        for j in range(M):
+            r_max = min(7 * sigma_w[k,j], L)
+            r_vals = np.linspace(0, r_max, 500)
+            density = normal_1d_radial(r_vals, sigma_w[k, j])
+            r_values_row.append(r_vals.tolist())
+            density_row.append(density.tolist())
+
+        death_r_values.append(r_values_row)
+        death_density_values.append(density_row)
+
+    cutoffs = []
+    for k in range(M):
+        for j in range(M):
+            cutoffs.append(min(7 * sigma_w[k,j], L))
+
+    np.random.seed(seed * 47)
+    coords = []
+    for _ in range(M):
+        group = [[np.random.uniform(0, L)] for _ in range(1500)]
+        coords.append(group)
+
+    return {
+        "name": "Scenario 8 (Heteromyopia 1D)",
+        "params": {
+            "M": M, "areaLen": [L], "cellCount": [250], "isPeriodic": False,
+            "birthRates": birth_rates, "deathRates": natural_death_rates,
+            "ddMatrix": competition_matrix,
+            "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
+            "deathX": death_r_values, "deathY": death_density_values,
+            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "coordinates": coords, "run_events": 2000,
+            "dim": 1
+        }
+    }
+
+
+def make_scenario_9():
+    # Competition-colonization trade-off (2D)
+    L = 4.0
+    M = 2
+    seed = 42
+    birth_rates = [0.4, 0.4]
+    natural_death_rates = [0.2, 0.2]
+    competition_matrix = [
+        0.001, 0.001,
+        0.0008, 0.001
+    ]
+    sigma_m = [0.04, 0.04]
+    sigma_w = np.array([
+        [0.04, 0.04],
+        [0.04, 0.04],
+    ])
+
+    def normal_2d_radial(r, sigma):
+        return (1 / (2 * np.pi * sigma**2)) * np.exp(-r**2 / (2 * sigma**2))
+
+    q_values = np.arange(0, 1.0, 0.001)
+
+    birth_inverse_values = []
+    for i in range(M):
+        inverse_vals = rayleigh.ppf(q_values, scale=sigma_m[i])
+        birth_inverse_values.append(inverse_vals.tolist())
+
+    death_r_values = []
+    death_density_values = []
+
+    for i in range(M):
+        r_values_row = []
+        density_row = []
+
+        for j in range(M):
+            r_max = min(10 * sigma_w[i,j], L/2)
+            r_vals = np.linspace(0, r_max, 500)
+            density = normal_2d_radial(r_vals, sigma_w[i, j])
+            r_values_row.append(r_vals.tolist())
+            density_row.append(density.tolist())
+
+        death_r_values.append(r_values_row)
+        death_density_values.append(density_row)
+
+
+    cutoffs = []
+    for i in range(M):
+        for j in range(M):
+            cutoffs.append(min(10 * sigma_w[i,j], L/2))
+
+    np.random.seed(seed)
+    coords = []
+    for _ in range(M):
+        group = [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(1000)]
+        coords.append(group)
+
+    return {
+        "name": "Scenario 9 (Comp-col 2D)",
+        "params": {
+            "M": M, "areaLen": [L, L], "cellCount": [100, 100], "isPeriodic": False,
+            "birthRates": birth_rates, "deathRates": natural_death_rates,
+            "ddMatrix": competition_matrix,
+            "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
+            "deathX": death_r_values, "deathY": death_density_values,
+            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "coordinates": coords, "run_events": 2000,
+            "dim": 2
+        }
+    }
+
+
 SCENARIOS = [
     make_scenario_1,
     make_scenario_2,
@@ -329,6 +469,8 @@ SCENARIOS = [
     make_scenario_5,
     make_scenario_6,
     make_scenario_7,
+    make_scenario_8,
+    make_scenario_9,
 ]
 
 def run_scenario(scenario_def, is_benchmark=False):

@@ -175,42 +175,50 @@ inline void forNeighbors(const std::array<int, DIM> &centerIdx, const std::array
 }
 
 /**
- * @brief Represents a single grid cell containing data for multiple species.
- *
- * The `Cell` structure manages data related to particles and their interactions
- * within a single grid cell. It supports multiple species and provides cached
- * sums for efficient computation of birth and death rates.
- *
- * @tparam DIM The dimensionality of the simulation (1D, 2D, or 3D).
+ * @brief Fenwick Tree (Binary Indexed Tree) for O(log N) prefix sums and sampling.
  */
-template <int DIM>
-struct Cell {
-    std::vector<std::vector<std::array<double, DIM>>> coords;  ///< Coordinates of particles for each species.
-    std::vector<std::vector<double>> deathRates;               ///< Per-particle death rates for each species.
-    std::vector<int> population;                               ///< Population count for each species.
-    std::vector<double> cellBirthRateBySpecies;  ///< Cached sum of birth rates for each species in this cell.
-    std::vector<double> cellDeathRateBySpecies;  ///< Cached sum of death rates for each species in this cell.
-    double cellBirthRate = 0.0;                  ///< Total birth rate across all species in this cell.
-    double cellDeathRate = 0.0;                  ///< Total death rate across all species in this cell.
+class FenwickTree {
+    std::vector<double> tree;
+public:
+    void init(int n) { tree.assign(n + 1, 0.0); }
+    
+    void update(int i, double delta) {
+        for (++i; i < static_cast<int>(tree.size()); i += i & -i) {
+            tree[i] += delta;
+        }
+    }
+    
+    double query(int i) const {
+        double sum = 0.0;
+        for (++i; i > 0; i -= i & -i) {
+            sum += tree[i];
+        }
+        return sum;
+    }
+    
+    int sample(std::mt19937& rng, double total) const {
+        if (tree.size() <= 1) return 0;
+        double target = std::uniform_real_distribution<double>(0.0, total)(rng);
+        int idx = 0;
+        int n = static_cast<int>(tree.size()) - 1;
+        
+        int bitMask = 1;
+        while (bitMask <= n) bitMask <<= 1;
+        bitMask >>= 1;
 
-    Cell() = default;
-
-    /**
-     * @brief Initializes data structures for a given number of species.
-     *
-     * Allocates memory for storing particle coordinates, death rates, and population counts
-     * for `M` species. Also initializes cached sums for birth and death rates to zero.
-     *
-     * @param M The number of species to allocate data for.
-     */
-    void initSpecies(int M) {
-        coords.resize(M);
-        deathRates.resize(M);
-        population.resize(M, 0);
-        cellBirthRateBySpecies.resize(M, 0.0);
-        cellDeathRateBySpecies.resize(M, 0.0);
+        double current_sum = 0.0;
+        for (int step = bitMask; step > 0; step >>= 1) {
+            int next_idx = idx + step;
+            if (next_idx <= n && current_sum + tree[next_idx] < target) {
+                current_sum += tree[next_idx];
+                idx = next_idx;
+            }
+        }
+        return (idx >= n) ? (n - 1) : idx;
     }
 };
+
+
 
 /**
  * @brief The main simulation Grid. Partitions the domain into cells.
@@ -265,7 +273,19 @@ public:
     };
     std::vector<std::vector<UniformInterpData>> death_interp_;  ///< [s1][s2]
 
-    std::vector<Cell<DIM>> cells_;  ///< The grid cells
+    // Global SoA: State for each cell
+    std::vector<std::vector<int>> cell_population_;                  ///< [species][cell_idx]
+    std::vector<std::vector<double>> cell_birth_rate_by_species_;    ///< [species][cell_idx]
+    std::vector<std::vector<double>> cell_death_rate_by_species_;    ///< [species][cell_idx]
+    std::vector<double> cell_birth_rate_;                            ///< [cell_idx]
+    std::vector<double> cell_death_rate_;                            ///< [cell_idx]
+
+    // Global SoA: Particle data per cell
+    std::vector<std::array<std::vector<std::vector<double>>, DIM>> cell_coords_; ///< [species][dim][cell_idx][particle_idx]
+    std::vector<std::vector<std::vector<double>>> cell_particle_death_rates_;    ///< [species][cell_idx][particle_idx]
+
+    // Working buffers to avoid allocation during events
+    std::vector<double> dist_buffer_;
     std::vector<int> species_pop_;
     int total_num_cells_;           ///< Total number of cells (product of cell_count[dim])
 
@@ -284,8 +304,9 @@ public:
     // Precomputed inverse cell sizes for fast coordinate-to-cell mapping
     std::array<double, DIM> cell_size_inv_;  ///< cell_count_[d] / area_length_[d]
 
-    // Scratch buffer to avoid per-event allocations
-    std::vector<double> scratch_cell_rates_;
+    // Fenwick trees for O(log N) global event sampling
+    FenwickTree birth_tree_;
+    FenwickTree death_tree_;
 
     /**
      * @brief Main constructor. Initializes the grid and simulation parameters.
@@ -331,7 +352,7 @@ public:
      * @param raw Raw multi-dimensional index (may be outside domain if periodic)
      * @return Reference to the cell
      */
-    Cell<DIM> &cellAt(const std::array<int, DIM> &raw);
+    int cellIdx(const std::array<double, DIM> &pos) const;
 
     /**
      * @brief Evaluates the birth kernel for a species at a given quantile
@@ -455,6 +476,12 @@ public:
     std::vector<std::vector<std::array<double, DIM>>> get_all_particle_coords() const;
 
     /**
+     * @brief Gets the coordinates of particles of a given species in a given cell.
+     */
+    std::vector<std::array<double, DIM>> get_cell_coords(int cell_idx, int species_idx) const;
+    std::vector<double> get_cell_death_rates(int cell_idx, int species_idx) const;
+
+    /**
      * @brief Returns death rates for all particles for each species.
      *
      * For each species s (0 <= s < M), returns a vector of particle death rates.
@@ -469,7 +496,3 @@ public:
 extern template class Grid<1>;
 extern template class Grid<2>;
 extern template class Grid<3>;
-
-extern template struct Cell<1>;
-extern template struct Cell<2>;
-extern template struct Cell<3>;

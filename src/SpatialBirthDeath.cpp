@@ -238,13 +238,25 @@ Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<
     }
 
     total_num_cells_ = std::accumulate(cell_count_.begin(), cell_count_.end(), 1, std::multiplies<int>());
-    cells_.resize(total_num_cells_);
-    for (auto &c : cells_) {
-        c.initSpecies(M_);
-    }
+    
+    cell_population_.resize(M_, std::vector<int>(total_num_cells_, 0));
+    cell_birth_rate_by_species_.resize(M_, std::vector<double>(total_num_cells_, 0.0));
+    cell_death_rate_by_species_.resize(M_, std::vector<double>(total_num_cells_, 0.0));
+    cell_birth_rate_.resize(total_num_cells_, 0.0);
+    cell_death_rate_.resize(total_num_cells_, 0.0);
 
-    // Pre-allocate scratch buffer
-    scratch_cell_rates_.resize(total_num_cells_);
+    cell_coords_.resize(M_);
+    for (int s = 0; s < M_; ++s) {
+        for (int d = 0; d < DIM; ++d) {
+            cell_coords_[s][d].resize(total_num_cells_);
+        }
+    }
+    
+    cell_particle_death_rates_.resize(M_, std::vector<std::vector<double>>(total_num_cells_));
+
+    // Initialize Fenwick trees
+    birth_tree_.init(total_num_cells_);
+    death_tree_.init(total_num_cells_);
 }
 
 template <int DIM>
@@ -293,12 +305,16 @@ bool Grid<DIM>::inDomain(const std::array<int, DIM> &idx) const {
 }
 
 template <int DIM>
-Cell<DIM> &Grid<DIM>::cellAt(const std::array<int, DIM> &raw) {
-    std::array<int, DIM> w;
-    for (int dim = 0; dim < DIM; ++dim) {
-        w[dim] = wrapIndex(raw[dim], dim);
+int Grid<DIM>::cellIdx(const std::array<double, DIM> &pos) const {
+    std::array<int, DIM> cIdx;
+    for (int d = 0; d < DIM; ++d) {
+        int c = static_cast<int>(std::floor(pos[d] * cell_size_inv_[d]));
+        if (c >= cell_count_[d]) {
+            c = cell_count_[d] - 1;
+        }
+        cIdx[d] = wrapIndex(c, d);
     }
-    return cells_[flattenIdx(w)];
+    return flattenIdx(cIdx);
 }
 
 template <int DIM>
@@ -364,20 +380,28 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
         }
         cIdx[d] = c;
     }
-    Cell<DIM> &cell = cellAt(cIdx);
-    cell.coords[s].push_back(pos);
-    cell.deathRates[s].push_back(d_[s]);
-    ++cell.population[s];
+    int cIdxFlat = flattenIdx(cIdx);
+    for (int d = 0; d < DIM; ++d) {
+        cell_coords_[s][d][cIdxFlat].push_back(pos[d]);
+    }
+    cell_particle_death_rates_[s][cIdxFlat].push_back(d_[s]);
+    ++cell_population_[s][cIdxFlat];
     ++total_population_;
     ++species_pop_[s];
-    cell.cellBirthRateBySpecies[s] += b_[s];
-    cell.cellBirthRate += b_[s];
+    cell_birth_rate_by_species_[s][cIdxFlat] += b_[s];
+    cell_birth_rate_[cIdxFlat] += b_[s];
     total_birth_rate_ += b_[s];
-    cell.cellDeathRateBySpecies[s] += d_[s];
-    cell.cellDeathRate += d_[s];
+    cell_death_rate_by_species_[s][cIdxFlat] += d_[s];
+    cell_death_rate_[cIdxFlat] += d_[s];
     total_death_rate_ += d_[s];
-    auto &posNew = cell.coords[s].back();
-    int newIdx = static_cast<int>(cell.coords[s].size()) - 1;
+    std::array<double, DIM> posNew;
+    for (int d = 0; d < DIM; ++d) {
+        posNew[d] = cell_coords_[s][d][cIdxFlat].back();
+    }
+    int newIdx = static_cast<int>(cell_coords_[s][0][cIdxFlat].size()) - 1;
+
+    birth_tree_.update(cIdxFlat, b_[s]);
+    death_tree_.update(cIdxFlat, d_[s]);
 
     for (int s2 = 0; s2 < M_; ++s2) {
         const double cutoff_s_s2 = cutoff_[s][s2];
@@ -390,134 +414,63 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
             if (!periodic_ && !inDomain(nIdx)) {
                 return;
             }
-            Cell<DIM> &neighCell = cellAt(nIdx);
-            const int nParticles = static_cast<int>(neighCell.coords[s2].size());
-
-#if defined(__AVX2__)
-            if constexpr (DIM == 2) {
-                // AVX2 fast path: process 4 particles at a time
-                const double* coords_data = reinterpret_cast<const double*>(neighCell.coords[s2].data());
-                int j = 0;
-
-                if (nParticles >= 4) {
-                    __m256d ax_bc = _mm256_set1_pd(posNew[0]);
-                    __m256d ay_bc = _mm256_set1_pd(posNew[1]);
-
-                    __m256d Lx_bc, Ly_bc, halfLx_bc, halfLy_bc;
-                    if (periodic_) {
-                        Lx_bc = _mm256_set1_pd(area_length_[0]);
-                        Ly_bc = _mm256_set1_pd(area_length_[1]);
-                        halfLx_bc = _mm256_set1_pd(0.5 * area_length_[0]);
-                        halfLy_bc = _mm256_set1_pd(0.5 * area_length_[1]);
-                    }
-
-                    for (; j + 3 < nParticles; j += 4) {
-                        // Skip self check: if any of j..j+3 is self, fall through to scalar
-                        if (&neighCell == &cell && s2 == s &&
-                            newIdx >= j && newIdx < j + 4) {
-                            // Process this batch scalar (rare case)
-                            for (int jj = j; jj < j + 4; ++jj) {
-                                if (&neighCell == &cell && s2 == s && jj == newIdx) continue;
-                                auto &pos2 = neighCell.coords[s2][jj];
-                                const double dist = distancePeriodic<DIM>(posNew, pos2, area_length_, periodic_);
-                                if (dist <= cutoff_s_s2) {
-                                    const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
-                                    neighCell.deathRates[s2][jj] += inter_ij;
-                                    neighCell.cellDeathRateBySpecies[s2] += inter_ij;
-                                    neighCell.cellDeathRate += inter_ij;
-                                    total_death_rate_ += inter_ij;
-                                }
-                                if (dist <= cutoff_s2_s) {
-                                    const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, dist);
-                                    cell.deathRates[s][newIdx] += inter_ji;
-                                    cell.cellDeathRateBySpecies[s] += inter_ji;
-                                    cell.cellDeathRate += inter_ji;
-                                    total_death_rate_ += inter_ji;
-                                }
-                            }
-                            continue;
-                        }
-
-                        __m256d distSq;
-                        if (periodic_) {
-                            distSq = batchDistSq2D_periodic(ax_bc, ay_bc, coords_data + j * 2,
-                                                             Lx_bc, Ly_bc, halfLx_bc, halfLy_bc);
-                        } else {
-                            distSq = batchDistSq2D_nonperiodic(ax_bc, ay_bc, coords_data + j * 2);
-                        }
-
-                        // Extract and process
-                        alignas(32) double distSq_arr[4];
-                        _mm256_store_pd(distSq_arr, distSq);
-
-                        for (int k = 0; k < 4; ++k) {
-                            const int jj = j + k;
-                            const double dist = std::sqrt(distSq_arr[k]);
-                            if (dist <= cutoff_s_s2) {
-                                const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
-                                neighCell.deathRates[s2][jj] += inter_ij;
-                                neighCell.cellDeathRateBySpecies[s2] += inter_ij;
-                                neighCell.cellDeathRate += inter_ij;
-                                total_death_rate_ += inter_ij;
-                            }
-                            if (dist <= cutoff_s2_s) {
-                                const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, dist);
-                                cell.deathRates[s][newIdx] += inter_ji;
-                                cell.cellDeathRateBySpecies[s] += inter_ji;
-                                cell.cellDeathRate += inter_ji;
-                                total_death_rate_ += inter_ji;
-                            }
-                        }
-                    }
+            std::array<int, DIM> wrappedNIdx = nIdx;
+            if (periodic_) {
+                for (int d = 0; d < DIM; ++d) {
+                    wrappedNIdx[d] = (wrappedNIdx[d] % cell_count_[d] + cell_count_[d]) % cell_count_[d];
                 }
+            }
+            int nIdxFlat = flattenIdx(wrappedNIdx);
+            const int nParticles = static_cast<int>(cell_coords_[s2][0][nIdxFlat].size());
+            if (nParticles == 0) return;
 
-                // Scalar tail
-                for (; j < nParticles; ++j) {
-                    if (&neighCell == &cell && s2 == s && j == newIdx) {
-                        continue;
-                    }
-                    auto &pos2 = neighCell.coords[s2][j];
-                    const double dist = distancePeriodic<DIM>(posNew, pos2, area_length_, periodic_);
-                    if (dist <= cutoff_s_s2) {
-                        const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
-                        neighCell.deathRates[s2][j] += inter_ij;
-                        neighCell.cellDeathRateBySpecies[s2] += inter_ij;
-                        neighCell.cellDeathRate += inter_ij;
-                        total_death_rate_ += inter_ij;
-                    }
-                    if (dist <= cutoff_s2_s) {
-                        const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, dist);
-                        cell.deathRates[s][newIdx] += inter_ji;
-                        cell.cellDeathRateBySpecies[s] += inter_ji;
-                        cell.cellDeathRate += inter_ji;
-                        total_death_rate_ += inter_ji;
-                    }
+            dist_buffer_.resize(nParticles);
+
+#pragma GCC ivdep
+            for (int j = 0; j < nParticles; ++j) {
+                if (nIdxFlat == cIdxFlat && s2 == s && j == newIdx) {
+                    dist_buffer_[j] = 1e9;
+                    continue;
                 }
-            } else
-#endif  // __AVX2__
-            {
-                // Scalar path for DIM != 2 or no AVX2
-                for (int j = 0; j < nParticles; ++j) {
-                    if (&neighCell == &cell && s2 == s && j == newIdx) {
-                        continue;
+                double dist_sq = 0.0;
+                for (int d = 0; d < DIM; ++d) {
+                    double diff = std::abs(posNew[d] - cell_coords_[s2][d][nIdxFlat][j]);
+                    if (periodic_ && diff > 0.5 * area_length_[d]) {
+                        diff = area_length_[d] - diff;
                     }
-                    auto &pos2 = neighCell.coords[s2][j];
-                    const double dist = distancePeriodic<DIM>(posNew, pos2, area_length_, periodic_);
-                    if (dist <= cutoff_s_s2) {
-                        const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
-                        neighCell.deathRates[s2][j] += inter_ij;
-                        neighCell.cellDeathRateBySpecies[s2] += inter_ij;
-                        neighCell.cellDeathRate += inter_ij;
-                        total_death_rate_ += inter_ij;
-                    }
-                    if (dist <= cutoff_s2_s) {
-                        const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, dist);
-                        cell.deathRates[s][newIdx] += inter_ji;
-                        cell.cellDeathRateBySpecies[s] += inter_ji;
-                        cell.cellDeathRate += inter_ji;
-                        total_death_rate_ += inter_ji;
-                    }
+                    dist_sq += diff * diff;
                 }
+                dist_buffer_[j] = std::sqrt(dist_sq);
+            }
+
+            double delta_neigh = 0.0;
+            double delta_cell = 0.0;
+
+            for (int j = 0; j < nParticles; ++j) {
+                const double dist = dist_buffer_[j];
+                if (dist <= cutoff_s_s2) {
+                    const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
+                    cell_particle_death_rates_[s2][nIdxFlat][j] += inter_ij;
+                    delta_neigh += inter_ij;
+                }
+                if (dist <= cutoff_s2_s) {
+                    const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, dist);
+                    delta_cell += inter_ji;
+                }
+            }
+
+            if (delta_neigh > 0.0) {
+                cell_death_rate_by_species_[s2][nIdxFlat] += delta_neigh;
+                cell_death_rate_[nIdxFlat] += delta_neigh;
+                total_death_rate_ += delta_neigh;
+                death_tree_.update(nIdxFlat, delta_neigh);
+            }
+            if (delta_cell > 0.0) {
+                cell_particle_death_rates_[s][cIdxFlat][newIdx] += delta_cell;
+                cell_death_rate_by_species_[s][cIdxFlat] += delta_cell;
+                cell_death_rate_[cIdxFlat] += delta_cell;
+                total_death_rate_ += delta_cell;
+                death_tree_.update(cIdxFlat, delta_cell);
             }
         });
     }
@@ -525,144 +478,114 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
 
 template <int DIM>
 void Grid<DIM>::kill_at(int s, const std::array<int, DIM> &cIdx, int victimIdx) {
-    Cell<DIM> &cell = cellAt(cIdx);
-    const double victimRate = cell.deathRates[s][victimIdx];
-    --cell.population[s];
+    int cIdxFlat = flattenIdx(cIdx);
+    const double victimRate = cell_particle_death_rates_[s][cIdxFlat][victimIdx];
+    --cell_population_[s][cIdxFlat];
     --total_population_;
     --species_pop_[s];
-    cell.cellDeathRateBySpecies[s] -= victimRate;
-    cell.cellDeathRate -= victimRate;
+    cell_death_rate_by_species_[s][cIdxFlat] -= victimRate;
+    cell_death_rate_[cIdxFlat] -= victimRate;
     total_death_rate_ -= victimRate;
-    cell.cellBirthRateBySpecies[s] -= b_[s];
-    cell.cellBirthRate -= b_[s];
+    cell_birth_rate_by_species_[s][cIdxFlat] -= b_[s];
+    cell_birth_rate_[cIdxFlat] -= b_[s];
     total_birth_rate_ -= b_[s];
-    removeInteractionsOfParticle(cIdx, s, victimIdx);
-    const int lastIdx = static_cast<int>(cell.coords[s].size()) - 1;
-    if (victimIdx != lastIdx) {
-        cell.coords[s][victimIdx] = cell.coords[s][lastIdx];
-        cell.deathRates[s][victimIdx] = cell.deathRates[s][lastIdx];
+
+    birth_tree_.update(cIdxFlat, -b_[s]);
+    death_tree_.update(cIdxFlat, -victimRate);
+
+    std::array<double, DIM> posVictim;
+    for (int d = 0; d < DIM; ++d) {
+        posVictim[d] = cell_coords_[s][d][cIdxFlat][victimIdx];
     }
-    cell.coords[s].pop_back();
-    cell.deathRates[s].pop_back();
+    removeInteractionsOfParticle(cIdx, s, victimIdx);
+    const int lastIdx = static_cast<int>(cell_coords_[s][0][cIdxFlat].size()) - 1;
+    if (victimIdx != lastIdx) {
+        for (int d = 0; d < DIM; ++d) {
+            cell_coords_[s][d][cIdxFlat][victimIdx] = cell_coords_[s][d][cIdxFlat][lastIdx];
+        }
+        cell_particle_death_rates_[s][cIdxFlat][victimIdx] = cell_particle_death_rates_[s][cIdxFlat][lastIdx];
+    }
+    for (int d = 0; d < DIM; ++d) {
+        cell_coords_[s][d][cIdxFlat].pop_back();
+    }
+    cell_particle_death_rates_[s][cIdxFlat].pop_back();
 }
 
 template <int DIM>
 void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, int sVictim, int victimIdx) {
-    Cell<DIM> &victimCell = cellAt(cIdx);
-    auto &posVictim = victimCell.coords[sVictim][victimIdx];
+    int cIdxFlat = flattenIdx(cIdx);
+    std::array<double, DIM> posVictim;
+    for (int d = 0; d < DIM; ++d) {
+        posVictim[d] = cell_coords_[sVictim][d][cIdxFlat][victimIdx];
+    }
     for (int s2 = 0; s2 < M_; ++s2) {
         const double cutoff_sv_s2 = cutoff_[sVictim][s2];
         const double dd_sv_s2 = dd_[sVictim][s2];
         auto range = cull_[sVictim][s2];
 
+#if defined(__AVX2__)
+        __m256d ax_bc, ay_bc, Lx_bc, Ly_bc, halfLx_bc, halfLy_bc;
+        if constexpr (DIM == 2) {
+            ax_bc = _mm256_set1_pd(posVictim[0]);
+            ay_bc = _mm256_set1_pd(posVictim[1]);
+            if (periodic_) {
+                Lx_bc = _mm256_set1_pd(area_length_[0]);
+                Ly_bc = _mm256_set1_pd(area_length_[1]);
+                halfLx_bc = _mm256_set1_pd(0.5 * area_length_[0]);
+                halfLy_bc = _mm256_set1_pd(0.5 * area_length_[1]);
+            }
+        }
+#endif
+
         forNeighbors<DIM>(cIdx, range, [&](const std::array<int, DIM> &nIdx) {
             if (!periodic_ && !inDomain(nIdx)) {
                 return;
             }
-            Cell<DIM> &neighCell = cellAt(nIdx);
-            const int nParticles = static_cast<int>(neighCell.coords[s2].size());
-
-#if defined(__AVX2__)
-            if constexpr (DIM == 2) {
-                const double* coords_data = reinterpret_cast<const double*>(neighCell.coords[s2].data());
-                int j = 0;
-
-                if (nParticles >= 4) {
-                    __m256d ax_bc = _mm256_set1_pd(posVictim[0]);
-                    __m256d ay_bc = _mm256_set1_pd(posVictim[1]);
-
-                    __m256d Lx_bc, Ly_bc, halfLx_bc, halfLy_bc;
-                    if (periodic_) {
-                        Lx_bc = _mm256_set1_pd(area_length_[0]);
-                        Ly_bc = _mm256_set1_pd(area_length_[1]);
-                        halfLx_bc = _mm256_set1_pd(0.5 * area_length_[0]);
-                        halfLy_bc = _mm256_set1_pd(0.5 * area_length_[1]);
-                    }
-
-                    for (; j + 3 < nParticles; j += 4) {
-                        if (&neighCell == &victimCell && s2 == sVictim &&
-                            victimIdx >= j && victimIdx < j + 4) {
-                            for (int jj = j; jj < j + 4; ++jj) {
-                                if (&neighCell == &victimCell && s2 == sVictim && jj == victimIdx) continue;
-                                auto &pos2 = neighCell.coords[s2][jj];
-                                const double dist = distancePeriodic<DIM>(posVictim, pos2, area_length_, periodic_);
-                                if (dist <= cutoff_sv_s2) {
-                                    const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
-                                    neighCell.deathRates[s2][jj] -= inter_ij;
-                                    neighCell.cellDeathRateBySpecies[s2] -= inter_ij;
-                                    neighCell.cellDeathRate -= inter_ij;
-                                    total_death_rate_ -= inter_ij;
-                                }
-                            }
-                            continue;
-                        }
-
-                        __m256d distSq;
-                        if (periodic_) {
-                            distSq = batchDistSq2D_periodic(ax_bc, ay_bc, coords_data + j * 2,
-                                                             Lx_bc, Ly_bc, halfLx_bc, halfLy_bc);
-                        } else {
-                            distSq = batchDistSq2D_nonperiodic(ax_bc, ay_bc, coords_data + j * 2);
-                        }
-
-                        // Compare distSq <= cutoffSq for early batch reject
-                        __m256d cutSq_bc_val = _mm256_set1_pd(cutoff_sv_s2 * cutoff_sv_s2);
-                        __m256d cmp_mask = _mm256_cmp_pd(distSq, cutSq_bc_val, _CMP_LE_OQ);
-                        int mask = _mm256_movemask_pd(cmp_mask);
-
-                        if (mask == 0) continue;  // No interactions in this batch
-
-                        alignas(32) double distSq_arr[4];
-                        _mm256_store_pd(distSq_arr, distSq);
-
-                        for (int k = 0; k < 4; ++k) {
-                            if (mask & (1 << k)) {
-                                const int jj = j + k;
-                                const double dist = std::sqrt(distSq_arr[k]);
-                                if (dist <= cutoff_sv_s2) {
-                                    const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
-                                    neighCell.deathRates[s2][jj] -= inter_ij;
-                                    neighCell.cellDeathRateBySpecies[s2] -= inter_ij;
-                                    neighCell.cellDeathRate -= inter_ij;
-                                    total_death_rate_ -= inter_ij;
-                                }
-                            }
-                        }
-                    }
+            std::array<int, DIM> wrappedNIdx = nIdx;
+            if (periodic_) {
+                for (int d = 0; d < DIM; ++d) {
+                    wrappedNIdx[d] = (wrappedNIdx[d] % cell_count_[d] + cell_count_[d]) % cell_count_[d];
                 }
+            }
+            int nIdxFlat = flattenIdx(wrappedNIdx);
+            const int nParticles = static_cast<int>(cell_coords_[s2][0][nIdxFlat].size());
+            if (nParticles == 0) return;
 
-                // Scalar tail
-                for (; j < nParticles; ++j) {
-                    if (&neighCell == &victimCell && s2 == sVictim && j == victimIdx) {
-                        continue;
-                    }
-                    auto &pos2 = neighCell.coords[s2][j];
-                    const double dist = distancePeriodic<DIM>(posVictim, pos2, area_length_, periodic_);
-                    if (dist <= cutoff_sv_s2) {
-                        const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
-                        neighCell.deathRates[s2][j] -= inter_ij;
-                        neighCell.cellDeathRateBySpecies[s2] -= inter_ij;
-                        neighCell.cellDeathRate -= inter_ij;
-                        total_death_rate_ -= inter_ij;
-                    }
+            dist_buffer_.resize(nParticles);
+
+#pragma GCC ivdep
+            for (int j = 0; j < nParticles; ++j) {
+                if (nIdxFlat == cIdxFlat && s2 == sVictim && j == victimIdx) {
+                    dist_buffer_[j] = 1e9;
+                    continue;
                 }
-            } else
-#endif  // __AVX2__
-            {
-                for (int j = 0; j < nParticles; ++j) {
-                    if (&neighCell == &victimCell && s2 == sVictim && j == victimIdx) {
-                        continue;
+                double dist_sq = 0.0;
+                for (int d = 0; d < DIM; ++d) {
+                    double diff = std::abs(posVictim[d] - cell_coords_[s2][d][nIdxFlat][j]);
+                    if (periodic_ && diff > 0.5 * area_length_[d]) {
+                        diff = area_length_[d] - diff;
                     }
-                    auto &pos2 = neighCell.coords[s2][j];
-                    const double dist = distancePeriodic<DIM>(posVictim, pos2, area_length_, periodic_);
-                    if (dist <= cutoff_sv_s2) {
-                        const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
-                        neighCell.deathRates[s2][j] -= inter_ij;
-                        neighCell.cellDeathRateBySpecies[s2] -= inter_ij;
-                        neighCell.cellDeathRate -= inter_ij;
-                        total_death_rate_ -= inter_ij;
-                    }
+                    dist_sq += diff * diff;
                 }
+                dist_buffer_[j] = std::sqrt(dist_sq);
+            }
+
+            double delta_neigh = 0.0;
+
+            for (int j = 0; j < nParticles; ++j) {
+                const double dist = dist_buffer_[j];
+                if (dist <= cutoff_sv_s2) {
+                    const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
+                    cell_particle_death_rates_[s2][nIdxFlat][j] -= inter_ij;
+                    delta_neigh -= inter_ij;
+                }
+            }
+
+            if (delta_neigh < 0.0) {
+                cell_death_rate_by_species_[s2][nIdxFlat] += delta_neigh;
+                cell_death_rate_[nIdxFlat] += delta_neigh;
+                total_death_rate_ += delta_neigh;
+                death_tree_.update(nIdxFlat, delta_neigh);
             }
         });
     }
@@ -682,15 +605,27 @@ void Grid<DIM>::spawn_random() {
     if (total_birth_rate_ < 1e-12) {
         return;
     }
-    // Reuse scratch buffer instead of allocating each time
-    for (int i = 0; i < total_num_cells_; ++i) {
-        scratch_cell_rates_[i] = cells_[i].cellBirthRate;
+    const int parentCellIndex = birth_tree_.sample(rng_, total_birth_rate_);
+    
+    double u_species = std::uniform_real_distribution<double>(0.0, cell_birth_rate_[parentCellIndex])(rng_);
+    double acc_species = 0.0;
+    int s = M_ - 1;
+    for (int i = 0; i < M_; ++i) {
+        acc_species += cell_birth_rate_by_species_[i][parentCellIndex];
+        if (u_species < acc_species) {
+            s = i;
+            break;
+        }
     }
-    const int parentCellIndex = sample_discrete<true>(scratch_cell_rates_, rng_, total_birth_rate_);
-    Cell<DIM> &parentCell = cells_[parentCellIndex];
-    const int s = sample_discrete<true>(parentCell.cellBirthRateBySpecies, rng_, parentCell.cellBirthRate);
-    const int parentIdx = std::uniform_int_distribution<int>(0, parentCell.population[s] - 1)(rng_);
-    auto &parentPos = parentCell.coords[s][parentIdx];
+    
+    if (cell_population_[s][parentCellIndex] == 0) {
+        return;
+    }
+    const int parentIdx = std::uniform_int_distribution<int>(0, cell_population_[s][parentCellIndex] - 1)(rng_);
+    std::array<double, DIM> parentPos;
+    for (int d = 0; d < DIM; ++d) {
+        parentPos[d] = cell_coords_[s][d][parentCellIndex][parentIdx];
+    }
     const double u = std::uniform_real_distribution<double>(0.0, 1.0)(rng_);
     const double radius = evalBirthKernel(s, u);
     auto dir = randomUnitVector(rng_);
@@ -709,17 +644,23 @@ void Grid<DIM>::kill_random() {
     if (total_death_rate_ < 1e-12) {
         return;
     }
-    // Reuse scratch buffer instead of allocating each time
-    for (int i = 0; i < total_num_cells_; ++i) {
-        scratch_cell_rates_[i] = cells_[i].cellDeathRate;
+    const int cellIndex = death_tree_.sample(rng_, total_death_rate_);
+    
+    double u_species = std::uniform_real_distribution<double>(0.0, cell_death_rate_[cellIndex])(rng_);
+    double acc_species = 0.0;
+    int s = M_ - 1;
+    for (int i = 0; i < M_; ++i) {
+        acc_species += cell_death_rate_by_species_[i][cellIndex];
+        if (u_species < acc_species) {
+            s = i;
+            break;
+        }
     }
-    const int cellIndex = sample_discrete<true>(scratch_cell_rates_, rng_, total_death_rate_);
-    Cell<DIM> &cell = cells_[cellIndex];
-    const int s = sample_discrete<true>(cell.cellDeathRateBySpecies, rng_, cell.cellDeathRate);
-    if (cell.population[s] == 0) {
+    
+    if (cell_population_[s][cellIndex] == 0) {
         return;
     }
-    const int victimIdx = sample_discrete<true>(cell.deathRates[s], rng_, cell.cellDeathRateBySpecies[s]);
+    const int victimIdx = sample_discrete<true>(cell_particle_death_rates_[s][cellIndex], rng_, cell_death_rate_by_species_[s][cellIndex]);
     const std::array<int, DIM> cIdx = unflattenIdx(cellIndex);
     kill_at(s, cIdx, victimIdx);
 }
@@ -776,12 +717,39 @@ std::vector<std::vector<std::array<double, DIM>>> Grid<DIM>::get_all_particle_co
     for (int s = 0; s < M_; ++s) {
         result[s].reserve(species_pop_[s]);
     }
-    for (const auto &cell : cells_) {
+    for (int cell_idx = 0; cell_idx < total_num_cells_; ++cell_idx) {
         for (int s = 0; s < M_; ++s) {
-            result[s].insert(result[s].end(), cell.coords[s].begin(), cell.coords[s].end());
+            size_t nParticles = cell_coords_[s][0][cell_idx].size();
+            for (size_t p = 0; p < nParticles; ++p) {
+                std::array<double, DIM> pos;
+                for (int d = 0; d < DIM; ++d) {
+                    pos[d] = cell_coords_[s][d][cell_idx][p];
+                }
+                result[s].push_back(pos);
+            }
         }
     }
     return result;
+}
+
+template <int DIM>
+std::vector<std::array<double, DIM>> Grid<DIM>::get_cell_coords(int cell_idx, int species_idx) const {
+    std::vector<std::array<double, DIM>> result;
+    size_t nParticles = cell_coords_[species_idx][0][cell_idx].size();
+    result.reserve(nParticles);
+    for (size_t p = 0; p < nParticles; ++p) {
+        std::array<double, DIM> pos;
+        for (int d = 0; d < DIM; ++d) {
+            pos[d] = cell_coords_[species_idx][d][cell_idx][p];
+        }
+        result.push_back(pos);
+    }
+    return result;
+}
+
+template <int DIM>
+std::vector<double> Grid<DIM>::get_cell_death_rates(int cell_idx, int species_idx) const {
+    return cell_particle_death_rates_[species_idx][cell_idx];
 }
 
 template <int DIM>
@@ -791,9 +759,9 @@ std::vector<std::vector<double>> Grid<DIM>::get_all_particle_death_rates() const
     for (int s = 0; s < M_; ++s) {
         result[s].reserve(species_pop_[s]);
     }
-    for (const auto &cell : cells_) {
+    for (int cell_idx = 0; cell_idx < total_num_cells_; ++cell_idx) {
         for (int s = 0; s < M_; ++s) {
-            result[s].insert(result[s].end(), cell.deathRates[s].begin(), cell.deathRates[s].end());
+            result[s].insert(result[s].end(), cell_particle_death_rates_[s][cell_idx].begin(), cell_particle_death_rates_[s][cell_idx].end());
         }
     }
     return result;
@@ -802,7 +770,3 @@ std::vector<std::vector<double>> Grid<DIM>::get_all_particle_death_rates() const
 template class Grid<1>;
 template class Grid<2>;
 template class Grid<3>;
-
-template struct Cell<1>;
-template struct Cell<2>;
-template struct Cell<3>;

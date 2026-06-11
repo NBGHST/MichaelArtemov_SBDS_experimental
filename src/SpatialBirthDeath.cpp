@@ -715,12 +715,25 @@ if (per) {
 
             double delta_neigh = 0.0;
 
+            const double cutoffSq_sv_s2 = cutoff_sv_s2 * cutoff_sv_s2 + 1e-12;
             for (int j = 0; j < nParticles; ++j) {
-                const double dist = dist_buffer_[j];
-                if (dist <= cutoff_sv_s2) {
-                    const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
-                    cell_particle_death_rates_[s2NIdxFlat][j] -= inter_ij;
-                    delta_neigh -= inter_ij;
+                double dist = dist_buffer_[j];
+                double distSq = dist;
+                if constexpr (DIM > 1) {
+                    distSq = dist;
+                } else {
+                    distSq = dist * dist;
+                }
+                if (distSq <= cutoffSq_sv_s2) {
+                    double actual_dist = dist;
+                    if constexpr (DIM > 1) {
+                        actual_dist = std::sqrt(distSq);
+                    }
+                    if (actual_dist <= cutoff_sv_s2) {
+                        const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, actual_dist);
+                        cell_particle_death_rates_[s2NIdxFlat][j] -= inter_ij;
+                        delta_neigh -= inter_ij;
+                    }
                 }
             }
 

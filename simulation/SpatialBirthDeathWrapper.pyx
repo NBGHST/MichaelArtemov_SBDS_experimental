@@ -1,4 +1,7 @@
 #cython: language_level=3
+#cython: boundscheck=False
+#cython: wraparound=False
+#cython: cdivision=True
 """
 SpatialBirthDeathWrapper.pyx - Cython wrapper for the C++ spatial birth-death simulator.
 

@@ -29,7 +29,75 @@
  * @param x The x-value at which to interpolate.
  * @return The interpolated y-value.
  */
-double linearInterpolate(const std::vector<double> &xdat, const std::vector<double> &ydat, double x);
+inline double linearInterpolate(const std::vector<double> &xdat, const std::vector<double> &ydat, double x) {
+    if (x >= xdat.back()) {
+        return ydat.back();
+    }
+    if (x <= xdat.front()) {
+        return ydat.front();
+    }
+    auto i = std::lower_bound(xdat.begin(), xdat.end(), x);
+    const size_t k = i - xdat.begin();
+    const size_t l = (k > 0) ? k - 1 : 0;
+    const double x1 = xdat[l];
+    const double x2 = xdat[k];
+    const double y1 = ydat[l];
+    const double y2 = ydat[k];
+    return y1 + ((y2 - y1) * (x - x1) / (x2 - x1));
+}
+
+/**
+ * @brief Fast O(1) linear interpolation for uniformly-spaced x data.
+ *
+ * Assumes x values are evenly spaced from x0 with step dx.
+ * Falls back to clamping at boundaries.
+ *
+ * @param ydat The y-values of the tabulated data.
+ * @param x0 The first x value.
+ * @param dx The step between consecutive x values.
+ * @param inv_dx Precomputed 1.0/dx.
+ * @param n Number of data points.
+ * @param x The x-value at which to interpolate.
+ * @return The interpolated y-value.
+ */
+inline double linearInterpolateUniform(const double* __restrict__ ydat,
+                                        double x0, double dx, double inv_dx,
+                                        int n, double x) {
+    if (x <= x0) return ydat[0];
+    double idx_f = (x - x0) * inv_dx;
+    int idx = static_cast<int>(idx_f);
+    if (idx >= n - 1) return ydat[n - 1];
+    double frac = idx_f - idx;
+    return ydat[idx] + frac * (ydat[idx + 1] - ydat[idx]);
+}
+
+/**
+ * @brief Computes the squared Euclidean distance between two points in DIM dimensions,
+ *        with optional periodic wrapping.
+ *
+ * @param point_a The first point.
+ * @param point_b The second point.
+ * @param length The domain size along each dimension.
+ * @param periodic Whether to apply periodic wrapping.
+ * @return The squared Euclidean distance between `point_a` and `point_b`.
+ */
+template <int DIM>
+inline double distancePeriodicSq(const std::array<double, DIM> &point_a, const std::array<double, DIM> &point_b,
+                                  const std::array<double, DIM> &length, bool periodic) {
+    double sumSq = 0.0;
+    for (int i = 0; i < DIM; ++i) {
+        double diff = point_a[i] - point_b[i];
+        if (periodic) {
+            if (diff > 0.5 * length[i]) {
+                diff -= length[i];
+            } else if (diff < -0.5 * length[i]) {
+                diff += length[i];
+            }
+        }
+        sumSq += diff * diff;
+    }
+    return sumSq;
+}
 
 /**
  * @brief Computes the Euclidean distance between two points in DIM dimensions,
@@ -45,8 +113,10 @@ double linearInterpolate(const std::vector<double> &xdat, const std::vector<doub
  * @return The Euclidean distance between `point_a` and `point_b`.
  */
 template <int DIM>
-double distancePeriodic(const std::array<double, DIM> &point_a, const std::array<double, DIM> &point_b,
-                        const std::array<double, DIM> &length, bool periodic);
+inline double distancePeriodic(const std::array<double, DIM> &point_a, const std::array<double, DIM> &point_b,
+                        const std::array<double, DIM> &length, bool periodic) {
+    return std::sqrt(distancePeriodicSq<DIM>(point_a, point_b, length, periodic));
+}
 
 /**
  * @brief Iterates over all neighbor cell indices within a specified range around a center cell.
@@ -63,7 +133,46 @@ double distancePeriodic(const std::array<double, DIM> &point_a, const std::array
  * @param callback The function to invoke for each neighbor cell index.
  */
 template <int DIM, typename FUNC>
-void forNeighbors(const std::array<int, DIM> &centerIdx, const std::array<int, DIM> &range, FUNC &&callback);
+inline void forNeighbors(const std::array<int, DIM> &centerIdx, const std::array<int, DIM> &range, FUNC &&callback) {
+    std::array<int, DIM> neighborIdx;
+    if constexpr (DIM == 1) {
+        const int minX = centerIdx[0] - range[0];
+        const int maxX = centerIdx[0] + range[0];
+        for (int x = minX; x <= maxX; ++x) {
+            neighborIdx[0] = x;
+            callback(neighborIdx);
+        }
+    } else if constexpr (DIM == 2) {
+        const int minX = centerIdx[0] - range[0];
+        const int maxX = centerIdx[0] + range[0];
+        const int minY = centerIdx[1] - range[1];
+        const int maxY = centerIdx[1] + range[1];
+        for (int x = minX; x <= maxX; ++x) {
+            neighborIdx[0] = x;
+            for (int y = minY; y <= maxY; ++y) {
+                neighborIdx[1] = y;
+                callback(neighborIdx);
+            }
+        }
+    } else if constexpr (DIM == 3) {
+        const int minX = centerIdx[0] - range[0];
+        const int maxX = centerIdx[0] + range[0];
+        const int minY = centerIdx[1] - range[1];
+        const int maxY = centerIdx[1] + range[1];
+        const int minZ = centerIdx[2] - range[2];
+        const int maxZ = centerIdx[2] + range[2];
+        for (int x = minX; x <= maxX; ++x) {
+            neighborIdx[0] = x;
+            for (int y = minY; y <= maxY; ++y) {
+                neighborIdx[1] = y;
+                for (int z = minZ; z <= maxZ; ++z) {
+                    neighborIdx[2] = z;
+                    callback(neighborIdx);
+                }
+            }
+        }
+    }
+}
 
 /**
  * @brief Represents a single grid cell containing data for multiple species.
@@ -143,7 +252,18 @@ public:
     std::vector<std::vector<std::vector<double>>> death_y_;  ///< Death kernel y-values for species pairs
 
     std::vector<std::vector<double>> cutoff_;              ///< Maximum interaction distance: cutoff[s1][s2]
+    std::vector<std::vector<double>> cutoff_sq_;           ///< Squared cutoff for fast comparison
     std::vector<std::vector<std::array<int, DIM>>> cull_;  ///< Neighbor cell search range: cull[s1][s2][dim]
+
+    // Precomputed uniform-grid interpolation data for death kernels
+    struct UniformInterpData {
+        double x0;      ///< First x value
+        double dx;      ///< Step between consecutive x values
+        double inv_dx;  ///< Precomputed 1.0/dx
+        int n;          ///< Number of data points
+        bool is_uniform;///< Whether this kernel has uniform spacing
+    };
+    std::vector<std::vector<UniformInterpData>> death_interp_;  ///< [s1][s2]
 
     std::vector<Cell<DIM>> cells_;  ///< The grid cells
     std::vector<int> species_pop_;
@@ -160,6 +280,12 @@ public:
     std::chrono::system_clock::time_point init_time_;  ///< Real-time simulation start point
     double realtime_limit_;                            ///< Real-time limit for simulation (in seconds)
     bool realtime_limit_reached_ = {false};            ///< Flag indicating if the real-time limit was reached
+
+    // Precomputed inverse cell sizes for fast coordinate-to-cell mapping
+    std::array<double, DIM> cell_size_inv_;  ///< cell_count_[d] / area_length_[d]
+
+    // Scratch buffer to avoid per-event allocations
+    std::vector<double> scratch_cell_rates_;
 
     /**
      * @brief Main constructor. Initializes the grid and simulation parameters.

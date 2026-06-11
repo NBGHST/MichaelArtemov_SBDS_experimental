@@ -208,7 +208,159 @@ def make_scenario_3():
         "coordinates": coordinates,
         "run_events": 2000,
     }
+def make_scenario_4():
+    """3D single-species non-periodic scenario."""
+    L = 5.0
+    M = 1
+    seed = 42
+    birth_rates = [0.4]
+    natural_death_rates = [0.1]
+    competition_matrix = [0.02]
+    sigma_m = [0.5]
+    sigma_w = np.array([[0.3]])
 
+    q_values = np.arange(0, 1.0, 0.001)
+    birth_inverse_values = [(np.sqrt(-2 * np.log(1 - q_values)) / sigma_m[0]).tolist()]
+
+    r_max = min(5 / sigma_w[0, 0], L / 2)
+    r_vals = np.linspace(0, r_max, 500)
+    density = (sigma_w[0, 0] ** (-2)) * r_vals * np.exp(-r_vals / sigma_w[0, 0])
+
+    death_r_values = [[r_vals.tolist()]]
+    death_density_values = [[density.tolist()]]
+    cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
+
+    np.random.seed(seed)
+    coordinates = [[[np.random.uniform(0, L), np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(100)]]
+
+    return {
+        "name": "scenario_4_3d_single_species",
+        "dim": 3,
+        "M": M,
+        "areaLen": [L, L, L],
+        "cellCount": [10, 10, 10],
+        "isPeriodic": False,
+        "birthRates": birth_rates,
+        "deathRates": natural_death_rates,
+        "ddMatrix": competition_matrix,
+        "birthX": [q_values.tolist()],
+        "birthY": birth_inverse_values,
+        "deathX": death_r_values,
+        "deathY": death_density_values,
+        "cutoffs": cutoffs,
+        "seed": seed,
+        "rtimeLimit": 7200.0,
+        "coordinates": coordinates,
+        "run_events": 2000,
+    }
+
+
+def make_scenario_5():
+    """2D two-species periodic scenario."""
+    L = 5.0
+    M = 2
+    seed = 42
+    birth_rates = [0.3, 0.4]
+    natural_death_rates = [0.1, 0.15]
+    competition_matrix = [0.01, 0.005, 0.005, 0.01]
+    sigma_m = [0.5, 0.5]
+    sigma_w = np.array([[0.3, 0.3], [0.3, 0.3]])
+
+    q_values = np.arange(0, 1.0, 0.001)
+    birth_inverse_values = []
+    for i in range(M):
+        inverse_vals = np.sqrt(-2 * np.log(1 - q_values)) / sigma_m[i]
+        birth_inverse_values.append(inverse_vals.tolist())
+
+    death_r_values, death_density_values = [], []
+    for i in range(M):
+        r_row, d_row = [], []
+        for j in range(M):
+            r_max = min(5 / sigma_w[i, j], L / 2)
+            r_vals = np.linspace(0, r_max, 500)
+            density = (sigma_w[i, j] ** (-2)) * r_vals * np.exp(-r_vals / sigma_w[i, j])
+            r_row.append(r_vals.tolist())
+            d_row.append(density.tolist())
+        death_r_values.append(r_row)
+        death_density_values.append(d_row)
+
+    cutoffs = []
+    for i in range(M):
+        for j in range(M):
+            cutoffs.append(min(10 * sigma_w[i, j], L / 2))
+
+    np.random.seed(seed)
+    coordinates = [
+        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(50)]
+        for _ in range(M)
+    ]
+
+    return {
+        "name": "scenario_5_2d_periodic",
+        "dim": 2,
+        "M": M,
+        "areaLen": [L, L],
+        "cellCount": [25, 25],
+        "isPeriodic": True,
+        "birthRates": birth_rates,
+        "deathRates": natural_death_rates,
+        "ddMatrix": competition_matrix,
+        "birthX": [q_values.tolist()] * M,
+        "birthY": birth_inverse_values,
+        "deathX": death_r_values,
+        "deathY": death_density_values,
+        "cutoffs": cutoffs,
+        "seed": seed,
+        "rtimeLimit": 7200.0,
+        "coordinates": coordinates,
+        "run_events": 2000,
+    }
+
+def make_scenario_6():
+    """1D single-species non-periodic scenario."""
+    L = 5.0
+    M = 1
+    seed = 123
+    birth_rates = [0.5]
+    natural_death_rates = [0.15]
+    competition_matrix = [0.01]
+    sigma_m = [0.5]
+    sigma_w = np.array([[0.3]])
+
+    q_values = np.arange(0, 1.0, 0.001)
+    birth_inverse_values = [(np.sqrt(-2 * np.log(1 - q_values)) / sigma_m[0]).tolist()]
+
+    r_max = min(5 / sigma_w[0, 0], L / 2)
+    r_vals = np.linspace(0, r_max, 500)
+    density = (sigma_w[0, 0] ** (-2)) * r_vals * np.exp(-r_vals / sigma_w[0, 0])
+
+    death_r_values = [[r_vals.tolist()]]
+    death_density_values = [[density.tolist()]]
+    cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
+
+    np.random.seed(seed)
+    coordinates = [[[np.random.uniform(0, L)] for _ in range(150)]]
+
+    return {
+        "name": "scenario_6_1d_non_periodic",
+        "dim": 1,
+        "M": M,
+        "areaLen": [L],
+        "cellCount": [25],
+        "isPeriodic": False,
+        "birthRates": birth_rates,
+        "deathRates": natural_death_rates,
+        "ddMatrix": competition_matrix,
+        "birthX": [q_values.tolist()],
+        "birthY": birth_inverse_values,
+        "deathX": death_r_values,
+        "deathY": death_density_values,
+        "cutoffs": cutoffs,
+        "seed": seed,
+        "rtimeLimit": 7200.0,
+        "coordinates": coordinates,
+        "run_events": 2000,
+    }
 
 def run_scenario(params):
     """Run a scenario and collect results."""
@@ -246,7 +398,7 @@ def run_scenario(params):
     }
 
 
-SCENARIOS = [make_scenario_1, make_scenario_2, make_scenario_3]
+SCENARIOS = [make_scenario_1, make_scenario_2, make_scenario_3, make_scenario_4, make_scenario_5, make_scenario_6]
 GOLDEN = load_golden()
 
 

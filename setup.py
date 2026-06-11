@@ -22,7 +22,7 @@ if compiler_type == "msvc":
     link_args = []  # MSVC typically does not need optimization flags for linking
 else:
     # For GCC/Clang, add -O3 and -march=native for maximum optimization
-    compile_args = ["-std=c++20", "-O3", "-march=native"]
+    compile_args = ["-std=c++20", "-O3", "-march=native", "-flto", "-funroll-loops", "-mavx2"]
     link_args = compile_args
 
 

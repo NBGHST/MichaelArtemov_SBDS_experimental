@@ -278,7 +278,167 @@ def benchmark_1d():
         "species_pop": g.species_pop,
     }
 
+def benchmark_1d_non_periodic():
+    """1D non-periodic benchmark."""
+    L = 5.0
+    M = 1
+    seed = 123
+    birth_rates = [0.5]
+    natural_death_rates = [0.15]
+    competition_matrix = [0.01]
+    sigma_m = [0.5]
+    sigma_w = np.array([[0.3]])
 
+    q_values = np.arange(0, 1.0, 0.001)
+    birth_inverse_values = [
+        (np.sqrt(-2 * np.log(1 - q_values)) / sigma_m[0]).tolist()
+    ]
+
+    r_max = min(5 / sigma_w[0, 0], L / 2)
+    r_vals = np.linspace(0, r_max, 500)
+    density = (sigma_w[0, 0] ** (-2)) * r_vals * np.exp(-r_vals / sigma_w[0, 0])
+
+    death_r_values = [[r_vals.tolist()]]
+    death_density_values = [[density.tolist()]]
+    cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
+
+    np.random.seed(seed)
+    coords = [[[np.random.uniform(0, L)] for _ in range(300)]]
+
+    g = simulation.PyGrid1(
+        M=M, areaLen=[L], cellCount=[25], isPeriodic=False,
+        birthRates=birth_rates, deathRates=natural_death_rates,
+        ddMatrix=competition_matrix,
+        birthX=[q_values.tolist()], birthY=birth_inverse_values,
+        deathX=death_r_values, deathY=death_density_values,
+        cutoffs=cutoffs, seed=seed, rtimeLimit=7200.0,
+    )
+    g.placePopulation(coords)
+
+    n_events = 20000
+    t0 = time.perf_counter()
+    g.run_events(n_events)
+    elapsed = time.perf_counter() - t0
+
+    return {
+        "name": "1D Non-Periodic (300 init, 20K events)",
+        "events": n_events,
+        "elapsed": elapsed,
+        "final_pop": g.total_population,
+        "species_pop": g.species_pop,
+    }
+
+def benchmark_3d():
+    """3D benchmark."""
+    L = 3.0
+    M = 1
+    seed = 42
+    birth_rates = [0.4]
+    natural_death_rates = [0.1]
+    competition_matrix = [0.02]
+    sigma_m = [0.5]
+    sigma_w = np.array([[0.3]])
+
+    q_values = np.arange(0, 1.0, 0.001)
+    birth_inverse_values = [(np.sqrt(-2 * np.log(1 - q_values)) / sigma_m[0]).tolist()]
+
+    r_max = min(5 / sigma_w[0, 0], L / 2)
+    r_vals = np.linspace(0, r_max, 500)
+    density = (sigma_w[0, 0] ** (-2)) * r_vals * np.exp(-r_vals / sigma_w[0, 0])
+
+    death_r_values = [[r_vals.tolist()]]
+    death_density_values = [[density.tolist()]]
+    cutoffs = [min(10 * sigma_w[0, 0], L / 2)]
+
+    np.random.seed(seed)
+    coords = [[[np.random.uniform(0, L), np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(500)]]
+
+    g = simulation.PyGrid3(
+        M=M, areaLen=[L, L, L], cellCount=[10, 10, 10], isPeriodic=False,
+        birthRates=birth_rates, deathRates=natural_death_rates,
+        ddMatrix=competition_matrix,
+        birthX=[q_values.tolist()], birthY=birth_inverse_values,
+        deathX=death_r_values, deathY=death_density_values,
+        cutoffs=cutoffs, seed=seed, rtimeLimit=7200.0,
+    )
+    g.placePopulation(coords)
+
+    n_events = 20000
+    t0 = time.perf_counter()
+    g.run_events(n_events)
+    elapsed = time.perf_counter() - t0
+
+    return {
+        "name": "3D (500 init, 20K events, non-periodic)",
+        "events": n_events,
+        "elapsed": elapsed,
+        "final_pop": g.total_population,
+        "species_pop": g.species_pop,
+    }
+
+
+def benchmark_2d_periodic():
+    """2D periodic benchmark."""
+    L = 5.0
+    M = 2
+    seed = 42
+    birth_rates = [0.33, 0.33]
+    natural_death_rates = [0.1, 0.1]
+    competition_matrix = [0.02, 0.012, 0.012, 0.02]
+    sigma_m = [1, 1]
+    sigma_w = np.array([[0.4, 0.4], [0.4, 0.4]])
+
+    q_values = np.arange(0, 1.0, 0.001)
+    birth_inverse_values = []
+    for i in range(M):
+        inverse_vals = np.sqrt(-2 * np.log(1 - q_values)) / sigma_m[i]
+        birth_inverse_values.append(inverse_vals.tolist())
+
+    death_r_values, death_density_values = [], []
+    for i in range(M):
+        r_row, d_row = [], []
+        for j in range(M):
+            r_max = min(5 / sigma_w[i, j], L / 2)
+            r_vals = np.linspace(0, r_max, 500)
+            density = (sigma_w[i, j] ** (-2)) * r_vals * np.exp(-r_vals / sigma_w[i, j])
+            r_row.append(r_vals.tolist())
+            d_row.append(density.tolist())
+        death_r_values.append(r_row)
+        death_density_values.append(d_row)
+
+    cutoffs = []
+    for i in range(M):
+        for j in range(M):
+            cutoffs.append(min(10 * sigma_w[i, j], L / 2))
+
+    np.random.seed(seed)
+    coords = [
+        [[np.random.uniform(0, L), np.random.uniform(0, L)] for _ in range(250)]
+        for _ in range(M)
+    ]
+
+    g = simulation.PyGrid2(
+        M=M, areaLen=[L, L], cellCount=[25, 25], isPeriodic=True,
+        birthRates=birth_rates, deathRates=natural_death_rates,
+        ddMatrix=competition_matrix,
+        birthX=[q_values.tolist()] * M, birthY=birth_inverse_values,
+        deathX=death_r_values, deathY=death_density_values,
+        cutoffs=cutoffs, seed=seed, rtimeLimit=7200.0,
+    )
+    g.placePopulation(coords)
+
+    n_events = 20000
+    t0 = time.perf_counter()
+    g.run_events(n_events)
+    elapsed = time.perf_counter() - t0
+
+    return {
+        "name": "2D Periodic (500 init, 20K events)",
+        "events": n_events,
+        "elapsed": elapsed,
+        "final_pop": g.total_population,
+        "species_pop": g.species_pop,
+    }
 def main():
     print("=" * 70)
     print("SBDS Simulator Performance Benchmarks")
@@ -289,6 +449,9 @@ def main():
         benchmark_medium,
         benchmark_large_run_for,
         benchmark_1d,
+        benchmark_1d_non_periodic,
+        benchmark_3d,
+        benchmark_2d_periodic,
     ]
 
     results = []

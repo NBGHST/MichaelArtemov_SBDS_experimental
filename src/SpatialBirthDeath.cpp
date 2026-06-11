@@ -423,7 +423,7 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
             const int nParticles = static_cast<int>(coords_s2_0.size());
             if (nParticles == 0) return;
 
-            if (dist_buffer_.size() < static_cast<size_t>(nParticles)) dist_buffer_.resize(nParticles * 2);
+            dist_buffer_.resize(nParticles);
 
             if constexpr (DIM == 1) {
                 const double* __restrict__ p0 = coords_s2_0.data();
@@ -462,14 +462,14 @@ if (per) {
                         diff0 = std::min(diff0, len0 - diff0);
                         double diff1 = std::abs(pn1 - p1[j]);
                         diff1 = std::min(diff1, len1 - diff1);
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1;
                     }
                 } else {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff0 = pn0 - p0[j];
                         double diff1 = pn1 - p1[j];
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1;
                     }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == s) dist_buffer_[newIdx] = 1e9;
@@ -498,7 +498,7 @@ if (per) {
                         diff1 = std::min(diff1, len1 - diff1);
                         double diff2 = std::abs(pn2 - p2[j]);
                         diff2 = std::min(diff2, len2 - diff2);
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1 + diff2*diff2;
                     }
                 } else {
 #pragma GCC ivdep
@@ -506,7 +506,7 @@ if (per) {
                         double diff0 = pn0 - p0[j];
                         double diff1 = pn1 - p1[j];
                         double diff2 = pn2 - p2[j];
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1 + diff2*diff2;
                     }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == s) dist_buffer_[newIdx] = 1e9;
@@ -515,16 +515,31 @@ if (per) {
             double delta_neigh = 0.0;
             double delta_cell = 0.0;
 
+            const double cutoffSq_s_s2 = cutoff_s_s2 * cutoff_s_s2;
+            const double cutoffSq_s2_s = cutoff_s2_s * cutoff_s2_s;
             for (int j = 0; j < nParticles; ++j) {
-                const double dist = dist_buffer_[j];
-                if (dist <= cutoff_s_s2) {
-                    const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
-                    cell_particle_death_rates_[s2NIdxFlat][j] += inter_ij;
-                    delta_neigh += inter_ij;
+                double dist = dist_buffer_[j];
+                double distSq = dist;
+                if constexpr (DIM > 1) {
+                    distSq = dist; // dist_buffer_ holds squared distance for DIM > 1
+                } else {
+                    distSq = dist * dist; // For 1D, dist_buffer_ holds absolute distance
                 }
-                if (dist <= cutoff_s2_s) {
-                    const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, dist);
-                    delta_cell += inter_ji;
+                
+                if (distSq <= cutoffSq_s_s2 || distSq <= cutoffSq_s2_s) {
+                    double actual_dist = dist;
+                    if constexpr (DIM > 1) {
+                        actual_dist = std::sqrt(distSq);
+                    }
+                    if (distSq <= cutoffSq_s_s2) {
+                        const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, actual_dist);
+                        cell_particle_death_rates_[s2NIdxFlat][j] += inter_ij;
+                        delta_neigh += inter_ij;
+                    }
+                    if (distSq <= cutoffSq_s2_s) {
+                        const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, actual_dist);
+                        delta_cell += inter_ji;
+                    }
                 }
             }
 
@@ -609,7 +624,7 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
             const int nParticles = static_cast<int>(coords_s2_0.size());
             if (nParticles == 0) return;
 
-            if (dist_buffer_.size() < static_cast<size_t>(nParticles)) dist_buffer_.resize(nParticles * 2);
+            dist_buffer_.resize(nParticles);
 
             if constexpr (DIM == 1) {
                 const double* __restrict__ p0 = coords_s2_0.data();
@@ -648,14 +663,14 @@ if (per) {
                         diff0 = std::min(diff0, len0 - diff0);
                         double diff1 = std::abs(pv1 - p1[j]);
                         diff1 = std::min(diff1, len1 - diff1);
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1;
                     }
                 } else {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff0 = pv0 - p0[j];
                         double diff1 = pv1 - p1[j];
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1;
                     }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == sVictim) dist_buffer_[victimIdx] = 1e9;
@@ -684,7 +699,7 @@ if (per) {
                         diff1 = std::min(diff1, len1 - diff1);
                         double diff2 = std::abs(pv2 - p2[j]);
                         diff2 = std::min(diff2, len2 - diff2);
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1 + diff2*diff2;
                     }
                 } else {
 #pragma GCC ivdep
@@ -692,7 +707,7 @@ if (per) {
                         double diff0 = pv0 - p0[j];
                         double diff1 = pv1 - p1[j];
                         double diff2 = pv2 - p2[j];
-                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                        dist_buffer_[j] = diff0*diff0 + diff1*diff1 + diff2*diff2;
                     }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == sVictim) dist_buffer_[victimIdx] = 1e9;

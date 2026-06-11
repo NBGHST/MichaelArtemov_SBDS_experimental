@@ -68,13 +68,14 @@ def print_comparison(all_results, ref_branch, cur_name):
         # Second line for ALL grid parameters
         gp = ref_c.get("grid_params", {})
         if gp:
-            param_str = f"M={gp.get('M')}, areaLen={gp.get('areaLen')}, bRates={gp.get('birthRates')}, dRates={gp.get('deathRates')}, cutoffs={gp.get('cutoffs')}, sigma_m={gp.get('sigma_m')}, sigma_w={gp.get('sigma_w')}"
+            param_str = f"M={gp.get('M')}, areaLen={gp.get('areaLen')}, bRates={gp.get('birthRates')}, dRates={gp.get('deathRates')}, cutoffs={gp.get('cutoffs')}, ddMatrix={gp.get('ddMatrix')}, sigma_m={gp.get('sigma_m')}, sigma_w={gp.get('sigma_w')}"
             print(f"   ↳ Params: {param_str}")
             print("-" * 130)
     
+    col_order = ["cpp_opt", "prev_best", cur_name]
     print("\n[ BENCHMARKS (Events / Sec) ]")
     header = f"{'Scenario':<40}"
-    for b in all_results.keys():
+    for b in col_order:
         header += f" | {b:<12}"
     header += f" | Speedup (prev_best vs cpp_opt) | Speedup ({cur_name} vs cpp_opt)"
     print(header)
@@ -97,7 +98,7 @@ def print_comparison(all_results, ref_branch, cur_name):
         cpp_rate = all_results.get("cpp_opt", {}).get("benchmark", [{}])[i].get("rate", 0) if "cpp_opt" in all_results else 0
         cur_rate = cur_results["benchmark"][i]["rate"]
         
-        for b in all_results.keys():
+        for b in col_order:
             rate = all_results[b]["benchmark"][i]["rate"]
             row += f" | {format_rate(rate):<12}"
             

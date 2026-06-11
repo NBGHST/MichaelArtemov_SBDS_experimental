@@ -515,8 +515,8 @@ if (per) {
             double delta_neigh = 0.0;
             double delta_cell = 0.0;
 
-            const double cutoffSq_s_s2 = cutoff_s_s2 * cutoff_s_s2;
-            const double cutoffSq_s2_s = cutoff_s2_s * cutoff_s2_s;
+            const double cutoffSq_s_s2 = cutoff_s_s2 * cutoff_s_s2 + 1e-12;
+            const double cutoffSq_s2_s = cutoff_s2_s * cutoff_s2_s + 1e-12;
             for (int j = 0; j < nParticles; ++j) {
                 double dist = dist_buffer_[j];
                 double distSq = dist;
@@ -531,12 +531,12 @@ if (per) {
                     if constexpr (DIM > 1) {
                         actual_dist = std::sqrt(distSq);
                     }
-                    if (distSq <= cutoffSq_s_s2) {
+                    if (actual_dist <= cutoff_s_s2) {
                         const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, actual_dist);
                         cell_particle_death_rates_[s2NIdxFlat][j] += inter_ij;
                         delta_neigh += inter_ij;
                     }
-                    if (distSq <= cutoffSq_s2_s) {
+                    if (actual_dist <= cutoff_s2_s) {
                         const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, actual_dist);
                         delta_cell += inter_ji;
                     }

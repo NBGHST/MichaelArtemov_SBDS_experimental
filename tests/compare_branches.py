@@ -11,11 +11,12 @@ def run_command(cmd, cwd=None):
 
 def build_and_run(directory, output_file):
     # Copy the worker to the target directory if it's not there
-    worker_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker_metrics.py")
-    worker_dst = os.path.join(directory, "tests", "worker_metrics.py")
-    os.makedirs(os.path.dirname(worker_dst), exist_ok=True)
-    if os.path.abspath(worker_src) != os.path.abspath(worker_dst):
-        shutil.copy2(worker_src, worker_dst)
+    for file_name in ["worker_metrics.py", "test_correctness.py", "test_benchmark.py"]:
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
+        dst = os.path.join(directory, "tests", file_name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.abspath(src) != os.path.abspath(dst):
+            shutil.copy2(src, dst)
 
     # Build extension
     run_command([sys.executable, "setup.py", "build_ext", "--inplace", "--force", "-j4"], cwd=directory)
@@ -68,11 +69,12 @@ def print_comparison(all_results, ref_branch, cur_name):
     header = f"{'Scenario':<40}"
     for b in all_results.keys():
         header += f" | {b:<12}"
-    header += f" | Speedup (vs {ref_branch})"
+    header += f" | Speedup (vs {ref_branch}) | Speedup (vs cpp_opt)"
     print(header)
-    print("-" * 130)
+    print("-" * 150)
     
-    avg_speedup = 0
+    avg_speedup_ref = 0
+    avg_speedup_cpp = 0
     count = 0
     
     def format_rate(r):
@@ -85,22 +87,27 @@ def print_comparison(all_results, ref_branch, cur_name):
         
         row = f"{name:<40}"
         ref_rate = ref_results["benchmark"][i]["rate"]
+        cpp_rate = all_results.get("cpp_opt", {}).get("benchmark", [{}])[i].get("rate", 0) if "cpp_opt" in all_results else 0
         cur_rate = cur_results["benchmark"][i]["rate"]
         
         for b in all_results.keys():
             rate = all_results[b]["benchmark"][i]["rate"]
             row += f" | {format_rate(rate):<12}"
             
-        speedup = cur_rate / ref_rate if ref_rate > 0 else 0
-        avg_speedup += speedup
+        speedup_ref = cur_rate / ref_rate if ref_rate > 0 else 0
+        speedup_cpp = cur_rate / cpp_rate if cpp_rate > 0 else 0
+        
+        avg_speedup_ref += speedup_ref
+        avg_speedup_cpp += speedup_cpp
         count += 1
         
-        row += f" | {speedup:.2f}x"
+        row += f" | {speedup_ref:.2f}x"
+        row += f" | {speedup_cpp:.2f}x"
         print(row)
 
     if count > 0:
-        print("-" * 130)
-        print(f"AVERAGE SPEEDUP (vs {ref_branch}): {avg_speedup/count:.2f}x")
+        print("-" * 150)
+        print(f"AVERAGE SPEEDUP (vs {ref_branch}): {avg_speedup_ref/count:.2f}x | (vs cpp_opt): {avg_speedup_cpp/count:.2f}x")
 
     if not all_match:
         print("\n!!! WARNING: Correctness mismatch detected! !!!")

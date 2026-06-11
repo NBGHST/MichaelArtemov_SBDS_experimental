@@ -87,17 +87,31 @@ def print_comparison(all_results, ref_branch, cur_name):
 
     for d in [1, 2, 3]:
         print(f"\n[ BENCHMARKS (Events / Sec) - {d}D ]")
+        
+        current_col_order = col_order.copy()
+        if "numba_sim" in all_results:
+            current_col_order.append("numba_sim")
+
         header = f"{'Scenario':<40}"
-        for b in col_order:
+        for b in current_col_order:
             header += f" | {b:<12}"
         header += f" | Speedup (prev_best vs cpp_opt) | Speedup ({cur_name} vs cpp_opt)"
+        if "numba_sim" in all_results:
+            header += f" | Speedup (numba_sim vs cpp_opt)"
         print(header)
         print("-" * 150)
         
         avg_speedup_ref_cpp = 0
         avg_speedup_cur_cpp = 0
+        avg_speedup_numba_cpp = 0
         count = 0
         
+        numba_idx = 0
+        if "numba_sim" in all_results:
+            for i in range(len(ref_results["benchmark"])):
+                if ref_results["correctness"][i]['dim'] < d:
+                    numba_idx += 1
+
         for i in range(len(ref_results["benchmark"])):
             ref_c = ref_results["correctness"][i]
             if ref_c['dim'] != d:
@@ -109,10 +123,19 @@ def print_comparison(all_results, ref_branch, cur_name):
             cpp_rate = all_results.get("cpp_opt", {}).get("benchmark", [{}])[i].get("rate", 0) if "cpp_opt" in all_results else 0
             cur_rate = cur_results["benchmark"][i]["rate"]
             
-            for b in col_order:
-                rate = all_results[b]["benchmark"][i]["rate"]
-                row += f" | {format_rate(rate):<12}"
+            for b in current_col_order:
+                if b == "numba_sim":
+                    rate = all_results["numba_sim"]["benchmark"][numba_idx]["rate"]
+                    row += f" | {format_rate(rate):<12}"
+                    speedup_numba = rate / cpp_rate if cpp_rate > 0 else 0
+                    avg_speedup_numba_cpp += speedup_numba
+                else:
+                    rate = all_results[b]["benchmark"][i]["rate"]
+                    row += f" | {format_rate(rate):<12}"
                 
+            if "numba_sim" in current_col_order:
+                numba_idx += 1
+
             speedup_ref_cpp = ref_rate / cpp_rate if cpp_rate > 0 else 0
             speedup_cur_cpp = cur_rate / cpp_rate if cpp_rate > 0 else 0
             
@@ -122,11 +145,18 @@ def print_comparison(all_results, ref_branch, cur_name):
             
             row += f" | {speedup_ref_cpp:.2f}x"
             row += f" | {speedup_cur_cpp:.2f}x"
+            if "numba_sim" in all_results:
+                rate = all_results["numba_sim"]["benchmark"][numba_idx - 1]["rate"]
+                speedup_numba_cpp = rate / cpp_rate if cpp_rate > 0 else 0
+                row += f" | {speedup_numba_cpp:.2f}x"
             print(row)
             
         if count > 0:
             print("-" * 150)
-            print(f"AVERAGE {d}D SPEEDUP (prev_best vs cpp_opt): {avg_speedup_ref_cpp/count:.2f}x | ({cur_name} vs cpp_opt): {avg_speedup_cur_cpp/count:.2f}x")
+            avg_str = f"AVERAGE {d}D SPEEDUP (prev_best vs cpp_opt): {avg_speedup_ref_cpp/count:.2f}x | ({cur_name} vs cpp_opt): {avg_speedup_cur_cpp/count:.2f}x"
+            if "numba_sim" in all_results:
+                avg_str += f" | (numba_sim vs cpp_opt): {avg_speedup_numba_cpp/count:.2f}x"
+            print(avg_str)
 
     if not all_match:
         print("\n!!! WARNING: Correctness mismatch detected! !!!")
@@ -151,6 +181,13 @@ def main():
 
     print(f"\n--- Building and running current ({cur_branch}) ---")
     all_results[cur_branch] = build_and_run(current_dir, "cur_results.json")
+
+    print(f"\n--- Running numba_sim benchmarks ---")
+    run_command([sys.executable, "tests/numba_benchmark.py"], cwd=current_dir)
+    numba_file = os.path.join(current_dir, "numba_results.json")
+    if os.path.exists(numba_file):
+        with open(numba_file) as f:
+            all_results["numba_sim"] = {"benchmark": json.load(f)}
 
     print_comparison(all_results, branches[0], cur_branch)
 

@@ -429,7 +429,6 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
                 const double* __restrict__ p0 = coords_s2_0.data();
                 const double pn0 = posNew[0];
                 const double len0 = area_length_[0];
-                const double half_len0 = 0.5 * len0;
                 const bool per = periodic_;
 if (per) {
 #pragma GCC ivdep
@@ -452,8 +451,6 @@ if (per) {
                 const double pn1 = posNew[1];
                 const double len0 = area_length_[0];
                 const double len1 = area_length_[1];
-                const double half_len0 = 0.5 * len0;
-                const double half_len1 = 0.5 * len1;
                 const bool per = periodic_;
 if (per) {
 #pragma GCC ivdep
@@ -485,9 +482,6 @@ if (per) {
                 const double len0 = area_length_[0];
                 const double len1 = area_length_[1];
                 const double len2 = area_length_[2];
-                const double half_len0 = 0.5 * len0;
-                const double half_len1 = 0.5 * len1;
-                const double half_len2 = 0.5 * len2;
                 const bool per = periodic_;
 if (per) {
 #pragma GCC ivdep
@@ -630,7 +624,6 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
                 const double* __restrict__ p0 = coords_s2_0.data();
                 const double pv0 = posVictim[0];
                 const double len0 = area_length_[0];
-                const double half_len0 = 0.5 * len0;
                 const bool per = periodic_;
 if (per) {
 #pragma GCC ivdep
@@ -653,8 +646,6 @@ if (per) {
                 const double pv1 = posVictim[1];
                 const double len0 = area_length_[0];
                 const double len1 = area_length_[1];
-                const double half_len0 = 0.5 * len0;
-                const double half_len1 = 0.5 * len1;
                 const bool per = periodic_;
 if (per) {
 #pragma GCC ivdep
@@ -686,9 +677,6 @@ if (per) {
                 const double len0 = area_length_[0];
                 const double len1 = area_length_[1];
                 const double len2 = area_length_[2];
-                const double half_len0 = 0.5 * len0;
-                const double half_len1 = 0.5 * len1;
-                const double half_len2 = 0.5 * len2;
                 const bool per = periodic_;
 if (per) {
 #pragma GCC ivdep

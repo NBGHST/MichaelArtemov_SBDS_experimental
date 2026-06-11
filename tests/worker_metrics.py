@@ -55,7 +55,7 @@ def make_scenario_1():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 2
         }
@@ -108,7 +108,7 @@ def make_scenario_2():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 5000,
             "dim": 2
         }
@@ -146,7 +146,7 @@ def make_scenario_3():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()], "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 1
         }
@@ -184,7 +184,7 @@ def make_scenario_4():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()], "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 3
         }
@@ -237,7 +237,7 @@ def make_scenario_5():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 2
         }
@@ -276,7 +276,7 @@ def make_scenario_6():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()], "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 1
         }
@@ -315,7 +315,7 @@ def make_scenario_7():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()], "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 3
         }
@@ -383,7 +383,7 @@ def make_scenario_8():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 1
         }
@@ -454,7 +454,7 @@ def make_scenario_9():
             "ddMatrix": competition_matrix,
             "birthX": [q_values.tolist()] * M, "birthY": birth_inverse_values,
             "deathX": death_r_values, "deathY": death_density_values,
-            "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
+            "sigma_m": sigma_m, "sigma_w": sigma_w.tolist(), "cutoffs": cutoffs, "seed": seed, "rtimeLimit": 7200.0,
             "coordinates": coords, "run_events": 2000,
             "dim": 2
         }
@@ -508,6 +508,8 @@ def run_scenario(scenario_def, is_benchmark=False):
         "birthRates": params.get("birthRates", []),
         "deathRates": params.get("deathRates", []),
         "cutoffs": params.get("cutoffs", []),
+        "sigma_m": params.get("sigma_m", []),
+        "sigma_w": params.get("sigma_w", []),
         "run_events": run_events
     }
     

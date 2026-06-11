@@ -68,7 +68,7 @@ def print_comparison(all_results, ref_branch, cur_name):
         # Second line for ALL grid parameters
         gp = ref_c.get("grid_params", {})
         if gp:
-            param_str = f"M={gp.get('M')}, areaLen={gp.get('areaLen')}, bRates={gp.get('birthRates')}, dRates={gp.get('deathRates')}, cutoffs={gp.get('cutoffs')}"
+            param_str = f"M={gp.get('M')}, areaLen={gp.get('areaLen')}, bRates={gp.get('birthRates')}, dRates={gp.get('deathRates')}, cutoffs={gp.get('cutoffs')}, sigma_m={gp.get('sigma_m')}, sigma_w={gp.get('sigma_w')}"
             print(f"   ↳ Params: {param_str}")
             print("-" * 130)
     

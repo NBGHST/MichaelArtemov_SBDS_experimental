@@ -488,6 +488,10 @@ def run_scenario(scenario_def, is_benchmark=False):
     coords = params.pop("coordinates")
     run_events = params.pop("run_events")
 
+    # Pop sigma parameters so they don't get passed to C++ grid constructor
+    params.pop("sigma_m", None)
+    params.pop("sigma_w", None)
+
     if is_benchmark:
         run_events *= 10  # Run 10x more events for meaningful timings
 

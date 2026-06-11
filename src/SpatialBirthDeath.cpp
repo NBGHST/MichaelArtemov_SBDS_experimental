@@ -431,11 +431,17 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
                 const double len0 = area_length_[0];
                 const double half_len0 = 0.5 * len0;
                 const bool per = periodic_;
+if (per) {
 #pragma GCC ivdep
-                for (int j = 0; j < nParticles; ++j) {
-                    double diff = std::abs(pn0 - p0[j]);
-                    if (per && diff > half_len0) diff = len0 - diff;
-                    dist_buffer_[j] = diff;
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff = std::abs(pn0 - p0[j]);
+                        dist_buffer_[j] = diff > half_len0 ? len0 - diff : diff;
+                    }
+                } else {
+#pragma GCC ivdep
+                    for (int j = 0; j < nParticles; ++j) {
+                        dist_buffer_[j] = std::abs(pn0 - p0[j]);
+                    }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == s) dist_buffer_[newIdx] = 1e9;
             } else if constexpr (DIM == 2) {
@@ -449,13 +455,22 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
                 const double half_len0 = 0.5 * len0;
                 const double half_len1 = 0.5 * len1;
                 const bool per = periodic_;
+if (per) {
 #pragma GCC ivdep
-                for (int j = 0; j < nParticles; ++j) {
-                    double diff0 = std::abs(pn0 - p0[j]);
-                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
-                    double diff1 = std::abs(pn1 - p1[j]);
-                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
-                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = std::abs(pn0 - p0[j]);
+                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        double diff1 = std::abs(pn1 - p1[j]);
+                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                    }
+                } else {
+#pragma GCC ivdep
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = pn0 - p0[j];
+                        double diff1 = pn1 - p1[j];
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                    }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == s) dist_buffer_[newIdx] = 1e9;
             } else {
@@ -474,15 +489,25 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
                 const double half_len1 = 0.5 * len1;
                 const double half_len2 = 0.5 * len2;
                 const bool per = periodic_;
+if (per) {
 #pragma GCC ivdep
-                for (int j = 0; j < nParticles; ++j) {
-                    double diff0 = std::abs(pn0 - p0[j]);
-                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
-                    double diff1 = std::abs(pn1 - p1[j]);
-                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
-                    double diff2 = std::abs(pn2 - p2[j]);
-                    if (per && diff2 > half_len2) diff2 = len2 - diff2;
-                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = std::abs(pn0 - p0[j]);
+                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        double diff1 = std::abs(pn1 - p1[j]);
+                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        double diff2 = std::abs(pn2 - p2[j]);
+                        diff2 = diff2 > half_len2 ? len2 - diff2 : diff2;
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                    }
+                } else {
+#pragma GCC ivdep
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = pn0 - p0[j];
+                        double diff1 = pn1 - p1[j];
+                        double diff2 = pn2 - p2[j];
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                    }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == s) dist_buffer_[newIdx] = 1e9;
             }
@@ -592,11 +617,17 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
                 const double len0 = area_length_[0];
                 const double half_len0 = 0.5 * len0;
                 const bool per = periodic_;
+if (per) {
 #pragma GCC ivdep
-                for (int j = 0; j < nParticles; ++j) {
-                    double diff = std::abs(pv0 - p0[j]);
-                    if (per && diff > half_len0) diff = len0 - diff;
-                    dist_buffer_[j] = diff;
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff = std::abs(pv0 - p0[j]);
+                        dist_buffer_[j] = diff > half_len0 ? len0 - diff : diff;
+                    }
+                } else {
+#pragma GCC ivdep
+                    for (int j = 0; j < nParticles; ++j) {
+                        dist_buffer_[j] = std::abs(pv0 - p0[j]);
+                    }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == sVictim) dist_buffer_[victimIdx] = 1e9;
             } else if constexpr (DIM == 2) {
@@ -610,13 +641,22 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
                 const double half_len0 = 0.5 * len0;
                 const double half_len1 = 0.5 * len1;
                 const bool per = periodic_;
+if (per) {
 #pragma GCC ivdep
-                for (int j = 0; j < nParticles; ++j) {
-                    double diff0 = std::abs(pv0 - p0[j]);
-                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
-                    double diff1 = std::abs(pv1 - p1[j]);
-                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
-                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = std::abs(pv0 - p0[j]);
+                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        double diff1 = std::abs(pv1 - p1[j]);
+                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                    }
+                } else {
+#pragma GCC ivdep
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = pv0 - p0[j];
+                        double diff1 = pv1 - p1[j];
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                    }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == sVictim) dist_buffer_[victimIdx] = 1e9;
             } else {
@@ -635,15 +675,25 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
                 const double half_len1 = 0.5 * len1;
                 const double half_len2 = 0.5 * len2;
                 const bool per = periodic_;
+if (per) {
 #pragma GCC ivdep
-                for (int j = 0; j < nParticles; ++j) {
-                    double diff0 = std::abs(pv0 - p0[j]);
-                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
-                    double diff1 = std::abs(pv1 - p1[j]);
-                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
-                    double diff2 = std::abs(pv2 - p2[j]);
-                    if (per && diff2 > half_len2) diff2 = len2 - diff2;
-                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = std::abs(pv0 - p0[j]);
+                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        double diff1 = std::abs(pv1 - p1[j]);
+                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        double diff2 = std::abs(pv2 - p2[j]);
+                        diff2 = diff2 > half_len2 ? len2 - diff2 : diff2;
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                    }
+                } else {
+#pragma GCC ivdep
+                    for (int j = 0; j < nParticles; ++j) {
+                        double diff0 = pv0 - p0[j];
+                        double diff1 = pv1 - p1[j];
+                        double diff2 = pv2 - p2[j];
+                        dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                    }
                 }
                 if (nIdxFlat == cIdxFlat && s2 == sVictim) dist_buffer_[victimIdx] = 1e9;
             }

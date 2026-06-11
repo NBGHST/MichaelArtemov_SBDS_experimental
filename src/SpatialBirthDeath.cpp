@@ -239,20 +239,14 @@ Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<
 
     total_num_cells_ = std::accumulate(cell_count_.begin(), cell_count_.end(), 1, std::multiplies<int>());
     
-    cell_population_.resize(M_, std::vector<int>(total_num_cells_, 0));
-    cell_birth_rate_by_species_.resize(M_, std::vector<double>(total_num_cells_, 0.0));
-    cell_death_rate_by_species_.resize(M_, std::vector<double>(total_num_cells_, 0.0));
+    cell_population_.resize(M_ * total_num_cells_, 0);
+    cell_birth_rate_by_species_.resize(M_ * total_num_cells_, 0.0);
+    cell_death_rate_by_species_.resize(M_ * total_num_cells_, 0.0);
     cell_birth_rate_.resize(total_num_cells_, 0.0);
     cell_death_rate_.resize(total_num_cells_, 0.0);
 
-    cell_coords_.resize(M_);
-    for (int s = 0; s < M_; ++s) {
-        for (int d = 0; d < DIM; ++d) {
-            cell_coords_[s][d].resize(total_num_cells_);
-        }
-    }
-    
-    cell_particle_death_rates_.resize(M_, std::vector<std::vector<double>>(total_num_cells_));
+    cell_coords_.resize(M_ * DIM * total_num_cells_);
+    cell_particle_death_rates_.resize(M_ * total_num_cells_);
 
     // Initialize Fenwick trees
     birth_tree_.init(total_num_cells_);
@@ -381,24 +375,27 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
         cIdx[d] = c;
     }
     int cIdxFlat = flattenIdx(cIdx);
+    int sCIdxFlat = getSpeciesCellIdx(s, cIdxFlat);
+
     for (int d = 0; d < DIM; ++d) {
-        cell_coords_[s][d][cIdxFlat].push_back(pos[d]);
+        cell_coords_[getCoordIdx(s, d, cIdxFlat)].push_back(pos[d]);
     }
-    cell_particle_death_rates_[s][cIdxFlat].push_back(d_[s]);
-    ++cell_population_[s][cIdxFlat];
+    cell_particle_death_rates_[sCIdxFlat].push_back(d_[s]);
+    ++cell_population_[sCIdxFlat];
     ++total_population_;
     ++species_pop_[s];
-    cell_birth_rate_by_species_[s][cIdxFlat] += b_[s];
+    cell_birth_rate_by_species_[sCIdxFlat] += b_[s];
     cell_birth_rate_[cIdxFlat] += b_[s];
     total_birth_rate_ += b_[s];
-    cell_death_rate_by_species_[s][cIdxFlat] += d_[s];
+    cell_death_rate_by_species_[sCIdxFlat] += d_[s];
     cell_death_rate_[cIdxFlat] += d_[s];
     total_death_rate_ += d_[s];
+    
     std::array<double, DIM> posNew;
     for (int d = 0; d < DIM; ++d) {
-        posNew[d] = cell_coords_[s][d][cIdxFlat].back();
+        posNew[d] = cell_coords_[getCoordIdx(s, d, cIdxFlat)].back();
     }
-    int newIdx = static_cast<int>(cell_coords_[s][0][cIdxFlat].size()) - 1;
+    int newIdx = static_cast<int>(cell_coords_[getCoordIdx(s, 0, cIdxFlat)].size()) - 1;
 
     birth_tree_.update(cIdxFlat, b_[s]);
     death_tree_.update(cIdxFlat, d_[s]);
@@ -421,26 +418,82 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
                 }
             }
             int nIdxFlat = flattenIdx(wrappedNIdx);
-            const int nParticles = static_cast<int>(cell_coords_[s2][0][nIdxFlat].size());
+            int s2NIdxFlat = getSpeciesCellIdx(s2, nIdxFlat);
+            const auto& coords_s2_0 = cell_coords_[getCoordIdx(s2, 0, nIdxFlat)];
+            const int nParticles = static_cast<int>(coords_s2_0.size());
             if (nParticles == 0) return;
 
             dist_buffer_.resize(nParticles);
 
+            if constexpr (DIM == 1) {
+                const double* __restrict__ p0 = coords_s2_0.data();
+                const double pn0 = posNew[0];
+                const double len0 = area_length_[0];
+                const double half_len0 = 0.5 * len0;
+                const bool per = periodic_;
 #pragma GCC ivdep
-            for (int j = 0; j < nParticles; ++j) {
-                if (nIdxFlat == cIdxFlat && s2 == s && j == newIdx) {
-                    dist_buffer_[j] = 1e9;
-                    continue;
-                }
-                double dist_sq = 0.0;
-                for (int d = 0; d < DIM; ++d) {
-                    double diff = std::abs(posNew[d] - cell_coords_[s2][d][nIdxFlat][j]);
-                    if (periodic_ && diff > 0.5 * area_length_[d]) {
-                        diff = area_length_[d] - diff;
+                for (int j = 0; j < nParticles; ++j) {
+                    if (nIdxFlat == cIdxFlat && s2 == s && j == newIdx) {
+                        dist_buffer_[j] = 1e9;
+                        continue;
                     }
-                    dist_sq += diff * diff;
+                    double diff = std::abs(pn0 - p0[j]);
+                    if (per && diff > half_len0) diff = len0 - diff;
+                    dist_buffer_[j] = diff;
                 }
-                dist_buffer_[j] = std::sqrt(dist_sq);
+            } else if constexpr (DIM == 2) {
+                const auto& coords_s2_1 = cell_coords_[getCoordIdx(s2, 1, nIdxFlat)];
+                const double* __restrict__ p0 = coords_s2_0.data();
+                const double* __restrict__ p1 = coords_s2_1.data();
+                const double pn0 = posNew[0];
+                const double pn1 = posNew[1];
+                const double len0 = area_length_[0];
+                const double len1 = area_length_[1];
+                const double half_len0 = 0.5 * len0;
+                const double half_len1 = 0.5 * len1;
+                const bool per = periodic_;
+#pragma GCC ivdep
+                for (int j = 0; j < nParticles; ++j) {
+                    if (nIdxFlat == cIdxFlat && s2 == s && j == newIdx) {
+                        dist_buffer_[j] = 1e9;
+                        continue;
+                    }
+                    double diff0 = std::abs(pn0 - p0[j]);
+                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
+                    double diff1 = std::abs(pn1 - p1[j]);
+                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
+                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                }
+            } else {
+                const auto& coords_s2_1 = cell_coords_[getCoordIdx(s2, 1, nIdxFlat)];
+                const auto& coords_s2_2 = cell_coords_[getCoordIdx(s2, 2, nIdxFlat)];
+                const double* __restrict__ p0 = coords_s2_0.data();
+                const double* __restrict__ p1 = coords_s2_1.data();
+                const double* __restrict__ p2 = coords_s2_2.data();
+                const double pn0 = posNew[0];
+                const double pn1 = posNew[1];
+                const double pn2 = posNew[2];
+                const double len0 = area_length_[0];
+                const double len1 = area_length_[1];
+                const double len2 = area_length_[2];
+                const double half_len0 = 0.5 * len0;
+                const double half_len1 = 0.5 * len1;
+                const double half_len2 = 0.5 * len2;
+                const bool per = periodic_;
+#pragma GCC ivdep
+                for (int j = 0; j < nParticles; ++j) {
+                    if (nIdxFlat == cIdxFlat && s2 == s && j == newIdx) {
+                        dist_buffer_[j] = 1e9;
+                        continue;
+                    }
+                    double diff0 = std::abs(pn0 - p0[j]);
+                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
+                    double diff1 = std::abs(pn1 - p1[j]);
+                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
+                    double diff2 = std::abs(pn2 - p2[j]);
+                    if (per && diff2 > half_len2) diff2 = len2 - diff2;
+                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                }
             }
 
             double delta_neigh = 0.0;
@@ -450,7 +503,7 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
                 const double dist = dist_buffer_[j];
                 if (dist <= cutoff_s_s2) {
                     const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, dist);
-                    cell_particle_death_rates_[s2][nIdxFlat][j] += inter_ij;
+                    cell_particle_death_rates_[s2NIdxFlat][j] += inter_ij;
                     delta_neigh += inter_ij;
                 }
                 if (dist <= cutoff_s2_s) {
@@ -460,14 +513,14 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
             }
 
             if (delta_neigh > 0.0) {
-                cell_death_rate_by_species_[s2][nIdxFlat] += delta_neigh;
+                cell_death_rate_by_species_[s2NIdxFlat] += delta_neigh;
                 cell_death_rate_[nIdxFlat] += delta_neigh;
                 total_death_rate_ += delta_neigh;
                 death_tree_.update(nIdxFlat, delta_neigh);
             }
             if (delta_cell > 0.0) {
-                cell_particle_death_rates_[s][cIdxFlat][newIdx] += delta_cell;
-                cell_death_rate_by_species_[s][cIdxFlat] += delta_cell;
+                cell_particle_death_rates_[sCIdxFlat][newIdx] += delta_cell;
+                cell_death_rate_by_species_[sCIdxFlat] += delta_cell;
                 cell_death_rate_[cIdxFlat] += delta_cell;
                 total_death_rate_ += delta_cell;
                 death_tree_.update(cIdxFlat, delta_cell);
@@ -479,14 +532,15 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
 template <int DIM>
 void Grid<DIM>::kill_at(int s, const std::array<int, DIM> &cIdx, int victimIdx) {
     int cIdxFlat = flattenIdx(cIdx);
-    const double victimRate = cell_particle_death_rates_[s][cIdxFlat][victimIdx];
-    --cell_population_[s][cIdxFlat];
+    int sCIdxFlat = getSpeciesCellIdx(s, cIdxFlat);
+    const double victimRate = cell_particle_death_rates_[sCIdxFlat][victimIdx];
+    --cell_population_[sCIdxFlat];
     --total_population_;
     --species_pop_[s];
-    cell_death_rate_by_species_[s][cIdxFlat] -= victimRate;
+    cell_death_rate_by_species_[sCIdxFlat] -= victimRate;
     cell_death_rate_[cIdxFlat] -= victimRate;
     total_death_rate_ -= victimRate;
-    cell_birth_rate_by_species_[s][cIdxFlat] -= b_[s];
+    cell_birth_rate_by_species_[sCIdxFlat] -= b_[s];
     cell_birth_rate_[cIdxFlat] -= b_[s];
     total_birth_rate_ -= b_[s];
 
@@ -495,20 +549,20 @@ void Grid<DIM>::kill_at(int s, const std::array<int, DIM> &cIdx, int victimIdx) 
 
     std::array<double, DIM> posVictim;
     for (int d = 0; d < DIM; ++d) {
-        posVictim[d] = cell_coords_[s][d][cIdxFlat][victimIdx];
+        posVictim[d] = cell_coords_[getCoordIdx(s, d, cIdxFlat)][victimIdx];
     }
     removeInteractionsOfParticle(cIdx, s, victimIdx);
-    const int lastIdx = static_cast<int>(cell_coords_[s][0][cIdxFlat].size()) - 1;
+    const int lastIdx = static_cast<int>(cell_coords_[getCoordIdx(s, 0, cIdxFlat)].size()) - 1;
     if (victimIdx != lastIdx) {
         for (int d = 0; d < DIM; ++d) {
-            cell_coords_[s][d][cIdxFlat][victimIdx] = cell_coords_[s][d][cIdxFlat][lastIdx];
+            cell_coords_[getCoordIdx(s, d, cIdxFlat)][victimIdx] = cell_coords_[getCoordIdx(s, d, cIdxFlat)][lastIdx];
         }
-        cell_particle_death_rates_[s][cIdxFlat][victimIdx] = cell_particle_death_rates_[s][cIdxFlat][lastIdx];
+        cell_particle_death_rates_[sCIdxFlat][victimIdx] = cell_particle_death_rates_[sCIdxFlat][lastIdx];
     }
     for (int d = 0; d < DIM; ++d) {
-        cell_coords_[s][d][cIdxFlat].pop_back();
+        cell_coords_[getCoordIdx(s, d, cIdxFlat)].pop_back();
     }
-    cell_particle_death_rates_[s][cIdxFlat].pop_back();
+    cell_particle_death_rates_[sCIdxFlat].pop_back();
 }
 
 template <int DIM>
@@ -516,26 +570,12 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
     int cIdxFlat = flattenIdx(cIdx);
     std::array<double, DIM> posVictim;
     for (int d = 0; d < DIM; ++d) {
-        posVictim[d] = cell_coords_[sVictim][d][cIdxFlat][victimIdx];
+        posVictim[d] = cell_coords_[getCoordIdx(sVictim, d, cIdxFlat)][victimIdx];
     }
     for (int s2 = 0; s2 < M_; ++s2) {
         const double cutoff_sv_s2 = cutoff_[sVictim][s2];
         const double dd_sv_s2 = dd_[sVictim][s2];
         auto range = cull_[sVictim][s2];
-
-#if defined(__AVX2__)
-        __m256d ax_bc, ay_bc, Lx_bc, Ly_bc, halfLx_bc, halfLy_bc;
-        if constexpr (DIM == 2) {
-            ax_bc = _mm256_set1_pd(posVictim[0]);
-            ay_bc = _mm256_set1_pd(posVictim[1]);
-            if (periodic_) {
-                Lx_bc = _mm256_set1_pd(area_length_[0]);
-                Ly_bc = _mm256_set1_pd(area_length_[1]);
-                halfLx_bc = _mm256_set1_pd(0.5 * area_length_[0]);
-                halfLy_bc = _mm256_set1_pd(0.5 * area_length_[1]);
-            }
-        }
-#endif
 
         forNeighbors<DIM>(cIdx, range, [&](const std::array<int, DIM> &nIdx) {
             if (!periodic_ && !inDomain(nIdx)) {
@@ -548,26 +588,82 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
                 }
             }
             int nIdxFlat = flattenIdx(wrappedNIdx);
-            const int nParticles = static_cast<int>(cell_coords_[s2][0][nIdxFlat].size());
+            int s2NIdxFlat = getSpeciesCellIdx(s2, nIdxFlat);
+            const auto& coords_s2_0 = cell_coords_[getCoordIdx(s2, 0, nIdxFlat)];
+            const int nParticles = static_cast<int>(coords_s2_0.size());
             if (nParticles == 0) return;
 
             dist_buffer_.resize(nParticles);
 
+            if constexpr (DIM == 1) {
+                const double* __restrict__ p0 = coords_s2_0.data();
+                const double pv0 = posVictim[0];
+                const double len0 = area_length_[0];
+                const double half_len0 = 0.5 * len0;
+                const bool per = periodic_;
 #pragma GCC ivdep
-            for (int j = 0; j < nParticles; ++j) {
-                if (nIdxFlat == cIdxFlat && s2 == sVictim && j == victimIdx) {
-                    dist_buffer_[j] = 1e9;
-                    continue;
-                }
-                double dist_sq = 0.0;
-                for (int d = 0; d < DIM; ++d) {
-                    double diff = std::abs(posVictim[d] - cell_coords_[s2][d][nIdxFlat][j]);
-                    if (periodic_ && diff > 0.5 * area_length_[d]) {
-                        diff = area_length_[d] - diff;
+                for (int j = 0; j < nParticles; ++j) {
+                    if (nIdxFlat == cIdxFlat && s2 == sVictim && j == victimIdx) {
+                        dist_buffer_[j] = 1e9;
+                        continue;
                     }
-                    dist_sq += diff * diff;
+                    double diff = std::abs(pv0 - p0[j]);
+                    if (per && diff > half_len0) diff = len0 - diff;
+                    dist_buffer_[j] = diff;
                 }
-                dist_buffer_[j] = std::sqrt(dist_sq);
+            } else if constexpr (DIM == 2) {
+                const auto& coords_s2_1 = cell_coords_[getCoordIdx(s2, 1, nIdxFlat)];
+                const double* __restrict__ p0 = coords_s2_0.data();
+                const double* __restrict__ p1 = coords_s2_1.data();
+                const double pv0 = posVictim[0];
+                const double pv1 = posVictim[1];
+                const double len0 = area_length_[0];
+                const double len1 = area_length_[1];
+                const double half_len0 = 0.5 * len0;
+                const double half_len1 = 0.5 * len1;
+                const bool per = periodic_;
+#pragma GCC ivdep
+                for (int j = 0; j < nParticles; ++j) {
+                    if (nIdxFlat == cIdxFlat && s2 == sVictim && j == victimIdx) {
+                        dist_buffer_[j] = 1e9;
+                        continue;
+                    }
+                    double diff0 = std::abs(pv0 - p0[j]);
+                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
+                    double diff1 = std::abs(pv1 - p1[j]);
+                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
+                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
+                }
+            } else {
+                const auto& coords_s2_1 = cell_coords_[getCoordIdx(s2, 1, nIdxFlat)];
+                const auto& coords_s2_2 = cell_coords_[getCoordIdx(s2, 2, nIdxFlat)];
+                const double* __restrict__ p0 = coords_s2_0.data();
+                const double* __restrict__ p1 = coords_s2_1.data();
+                const double* __restrict__ p2 = coords_s2_2.data();
+                const double pv0 = posVictim[0];
+                const double pv1 = posVictim[1];
+                const double pv2 = posVictim[2];
+                const double len0 = area_length_[0];
+                const double len1 = area_length_[1];
+                const double len2 = area_length_[2];
+                const double half_len0 = 0.5 * len0;
+                const double half_len1 = 0.5 * len1;
+                const double half_len2 = 0.5 * len2;
+                const bool per = periodic_;
+#pragma GCC ivdep
+                for (int j = 0; j < nParticles; ++j) {
+                    if (nIdxFlat == cIdxFlat && s2 == sVictim && j == victimIdx) {
+                        dist_buffer_[j] = 1e9;
+                        continue;
+                    }
+                    double diff0 = std::abs(pv0 - p0[j]);
+                    if (per && diff0 > half_len0) diff0 = len0 - diff0;
+                    double diff1 = std::abs(pv1 - p1[j]);
+                    if (per && diff1 > half_len1) diff1 = len1 - diff1;
+                    double diff2 = std::abs(pv2 - p2[j]);
+                    if (per && diff2 > half_len2) diff2 = len2 - diff2;
+                    dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
+                }
             }
 
             double delta_neigh = 0.0;
@@ -576,13 +672,13 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
                 const double dist = dist_buffer_[j];
                 if (dist <= cutoff_sv_s2) {
                     const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, dist);
-                    cell_particle_death_rates_[s2][nIdxFlat][j] -= inter_ij;
+                    cell_particle_death_rates_[s2NIdxFlat][j] -= inter_ij;
                     delta_neigh -= inter_ij;
                 }
             }
 
             if (delta_neigh < 0.0) {
-                cell_death_rate_by_species_[s2][nIdxFlat] += delta_neigh;
+                cell_death_rate_by_species_[s2NIdxFlat] += delta_neigh;
                 cell_death_rate_[nIdxFlat] += delta_neigh;
                 total_death_rate_ += delta_neigh;
                 death_tree_.update(nIdxFlat, delta_neigh);
@@ -606,25 +702,23 @@ void Grid<DIM>::spawn_random() {
         return;
     }
     const int parentCellIndex = birth_tree_.sample(rng_, total_birth_rate_);
-    
-    double u_species = std::uniform_real_distribution<double>(0.0, cell_birth_rate_[parentCellIndex])(rng_);
     double acc_species = 0.0;
-    int s = M_ - 1;
+    const double target_species = std::uniform_real_distribution<double>(0.0, cell_birth_rate_[parentCellIndex])(rng_);
+    int s = 0;
     for (int i = 0; i < M_; ++i) {
-        acc_species += cell_birth_rate_by_species_[i][parentCellIndex];
-        if (u_species < acc_species) {
+        acc_species += cell_birth_rate_by_species_[getSpeciesCellIdx(i, parentCellIndex)];
+        if (target_species < acc_species) {
             s = i;
             break;
         }
     }
-    
-    if (cell_population_[s][parentCellIndex] == 0) {
+    if (cell_population_[getSpeciesCellIdx(s, parentCellIndex)] == 0) {
         return;
     }
-    const int parentIdx = std::uniform_int_distribution<int>(0, cell_population_[s][parentCellIndex] - 1)(rng_);
+    const int parentIdx = std::uniform_int_distribution<int>(0, cell_population_[getSpeciesCellIdx(s, parentCellIndex)] - 1)(rng_);
     std::array<double, DIM> parentPos;
     for (int d = 0; d < DIM; ++d) {
-        parentPos[d] = cell_coords_[s][d][parentCellIndex][parentIdx];
+        parentPos[d] = cell_coords_[getCoordIdx(s, d, parentCellIndex)][parentIdx];
     }
     const double u = std::uniform_real_distribution<double>(0.0, 1.0)(rng_);
     const double radius = evalBirthKernel(s, u);
@@ -645,22 +739,20 @@ void Grid<DIM>::kill_random() {
         return;
     }
     const int cellIndex = death_tree_.sample(rng_, total_death_rate_);
-    
-    double u_species = std::uniform_real_distribution<double>(0.0, cell_death_rate_[cellIndex])(rng_);
     double acc_species = 0.0;
-    int s = M_ - 1;
+    const double target_species = std::uniform_real_distribution<double>(0.0, cell_death_rate_[cellIndex])(rng_);
+    int s = 0;
     for (int i = 0; i < M_; ++i) {
-        acc_species += cell_death_rate_by_species_[i][cellIndex];
-        if (u_species < acc_species) {
+        acc_species += cell_death_rate_by_species_[getSpeciesCellIdx(i, cellIndex)];
+        if (target_species < acc_species) {
             s = i;
             break;
         }
     }
-    
-    if (cell_population_[s][cellIndex] == 0) {
+    if (cell_population_[getSpeciesCellIdx(s, cellIndex)] == 0) {
         return;
     }
-    const int victimIdx = sample_discrete<true>(cell_particle_death_rates_[s][cellIndex], rng_, cell_death_rate_by_species_[s][cellIndex]);
+    const int victimIdx = sample_discrete<true>(cell_particle_death_rates_[getSpeciesCellIdx(s, cellIndex)], rng_, cell_death_rate_by_species_[getSpeciesCellIdx(s, cellIndex)]);
     const std::array<int, DIM> cIdx = unflattenIdx(cellIndex);
     kill_at(s, cIdx, victimIdx);
 }
@@ -711,19 +803,35 @@ void Grid<DIM>::run_for(double duration) {
 }
 
 template <int DIM>
+std::vector<std::array<double, DIM>> Grid<DIM>::get_cell_coords(int cell_idx, int species_idx) const {
+    const int nParticles = cell_population_[getSpeciesCellIdx(species_idx, cell_idx)];
+    std::vector<std::array<double, DIM>> res(nParticles);
+    for (int j = 0; j < nParticles; ++j) {
+        for (int d = 0; d < DIM; ++d) {
+            res[j][d] = cell_coords_[getCoordIdx(species_idx, d, cell_idx)][j];
+        }
+    }
+    return res;
+}
+
+template <int DIM>
+std::vector<double> Grid<DIM>::get_cell_death_rates(int cell_idx, int species_idx) const {
+    return cell_particle_death_rates_[getSpeciesCellIdx(species_idx, cell_idx)];
+}
+
+template <int DIM>
 std::vector<std::vector<std::array<double, DIM>>> Grid<DIM>::get_all_particle_coords() const {
     std::vector<std::vector<std::array<double, DIM>>> result(M_);
-    // Pre-allocate based on species populations
     for (int s = 0; s < M_; ++s) {
         result[s].reserve(species_pop_[s]);
     }
     for (int cell_idx = 0; cell_idx < total_num_cells_; ++cell_idx) {
         for (int s = 0; s < M_; ++s) {
-            size_t nParticles = cell_coords_[s][0][cell_idx].size();
-            for (size_t p = 0; p < nParticles; ++p) {
+            const int nParticles = cell_population_[getSpeciesCellIdx(s, cell_idx)];
+            for (int j = 0; j < nParticles; ++j) {
                 std::array<double, DIM> pos;
                 for (int d = 0; d < DIM; ++d) {
-                    pos[d] = cell_coords_[s][d][cell_idx][p];
+                    pos[d] = cell_coords_[getCoordIdx(s, d, cell_idx)][j];
                 }
                 result[s].push_back(pos);
             }
@@ -733,35 +841,15 @@ std::vector<std::vector<std::array<double, DIM>>> Grid<DIM>::get_all_particle_co
 }
 
 template <int DIM>
-std::vector<std::array<double, DIM>> Grid<DIM>::get_cell_coords(int cell_idx, int species_idx) const {
-    std::vector<std::array<double, DIM>> result;
-    size_t nParticles = cell_coords_[species_idx][0][cell_idx].size();
-    result.reserve(nParticles);
-    for (size_t p = 0; p < nParticles; ++p) {
-        std::array<double, DIM> pos;
-        for (int d = 0; d < DIM; ++d) {
-            pos[d] = cell_coords_[species_idx][d][cell_idx][p];
-        }
-        result.push_back(pos);
-    }
-    return result;
-}
-
-template <int DIM>
-std::vector<double> Grid<DIM>::get_cell_death_rates(int cell_idx, int species_idx) const {
-    return cell_particle_death_rates_[species_idx][cell_idx];
-}
-
-template <int DIM>
 std::vector<std::vector<double>> Grid<DIM>::get_all_particle_death_rates() const {
     std::vector<std::vector<double>> result(M_);
-    // Pre-allocate based on species populations
     for (int s = 0; s < M_; ++s) {
         result[s].reserve(species_pop_[s]);
     }
     for (int cell_idx = 0; cell_idx < total_num_cells_; ++cell_idx) {
         for (int s = 0; s < M_; ++s) {
-            result[s].insert(result[s].end(), cell_particle_death_rates_[s][cell_idx].begin(), cell_particle_death_rates_[s][cell_idx].end());
+            int scIdx = getSpeciesCellIdx(s, cell_idx);
+            result[s].insert(result[s].end(), cell_particle_death_rates_[scIdx].begin(), cell_particle_death_rates_[scIdx].end());
         }
     }
     return result;

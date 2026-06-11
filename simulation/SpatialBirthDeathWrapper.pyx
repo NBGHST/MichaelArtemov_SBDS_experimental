@@ -298,9 +298,9 @@ cdef extern from "SpatialBirthDeath.h":
         int    total_population_
         double time_
         int    event_count_
-        vector[vector[int]] cell_population_
-        vector[vector[double]] cell_birth_rate_by_species_
-        vector[vector[double]] cell_death_rate_by_species_
+        vector[int] cell_population_
+        vector[double] cell_birth_rate_by_species_
+        vector[double] cell_death_rate_by_species_
         vector[double] cell_birth_rate_
         vector[double] cell_death_rate_
         vector[int] species_pop_
@@ -342,9 +342,9 @@ cdef extern from "SpatialBirthDeath.h":
         int    total_population_
         double time_
         int    event_count_
-        vector[vector[int]] cell_population_
-        vector[vector[double]] cell_birth_rate_by_species_
-        vector[vector[double]] cell_death_rate_by_species_
+        vector[int] cell_population_
+        vector[double] cell_birth_rate_by_species_
+        vector[double] cell_death_rate_by_species_
         vector[double] cell_birth_rate_
         vector[double] cell_death_rate_
         vector[int] species_pop_
@@ -386,9 +386,9 @@ cdef extern from "SpatialBirthDeath.h":
         int    total_population_
         double time_
         int    event_count_
-        vector[vector[int]] cell_population_
-        vector[vector[double]] cell_birth_rate_by_species_
-        vector[vector[double]] cell_death_rate_by_species_
+        vector[int] cell_population_
+        vector[double] cell_birth_rate_by_species_
+        vector[double] cell_death_rate_by_species_
         vector[double] cell_birth_rate_
         vector[double] cell_death_rate_
         vector[int] species_pop_
@@ -612,7 +612,7 @@ cdef class PyGrid1(PyGridBase):
         cdef int m = self.cpp_grid.species_pop_.size()
         cdef list out = [0]*m
         for s in range(m):
-            out[s] = self.cpp_grid.cell_population_[s][cell_index]
+            out[s] = self.cpp_grid.cell_population_[s * self.M + cell_index]
         return out
 
     def get_cell_coords(self, cell_index, species_idx):
@@ -772,7 +772,7 @@ cdef class PyGrid2(PyGridBase):
         cdef int m = self.cpp_grid.species_pop_.size()
         cdef list out = [0]*m
         for s in range(m):
-            out[s] = self.cpp_grid.cell_population_[s][cell_index]
+            out[s] = self.cpp_grid.cell_population_[s * self.M + cell_index]
         return out
 
     def get_cell_coords(self, cell_index, species_idx):
@@ -932,7 +932,7 @@ cdef class PyGrid3(PyGridBase):
         cdef int m = self.cpp_grid.species_pop_.size()
         cdef list out = [0]*m
         for s in range(m):
-            out[s] = self.cpp_grid.cell_population_[s][cell_index]
+            out[s] = self.cpp_grid.cell_population_[s * self.M + cell_index]
         return out
 
     def get_cell_coords(self, cell_index, species_idx):

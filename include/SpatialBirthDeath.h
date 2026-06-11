@@ -273,16 +273,24 @@ public:
     };
     std::vector<std::vector<UniformInterpData>> death_interp_;  ///< [s1][s2]
 
+    // Helper for 1D flattened access
+    inline int getSpeciesCellIdx(int s, int cIdxFlat) const {
+        return s * total_num_cells_ + cIdxFlat;
+    }
+    inline int getCoordIdx(int s, int d, int cIdxFlat) const {
+        return (s * DIM + d) * total_num_cells_ + cIdxFlat;
+    }
+
     // Global SoA: State for each cell
-    std::vector<std::vector<int>> cell_population_;                  ///< [species][cell_idx]
-    std::vector<std::vector<double>> cell_birth_rate_by_species_;    ///< [species][cell_idx]
-    std::vector<std::vector<double>> cell_death_rate_by_species_;    ///< [species][cell_idx]
-    std::vector<double> cell_birth_rate_;                            ///< [cell_idx]
-    std::vector<double> cell_death_rate_;                            ///< [cell_idx]
+    std::vector<int> cell_population_;               ///< size: M_ * total_num_cells_
+    std::vector<double> cell_birth_rate_by_species_; ///< size: M_ * total_num_cells_
+    std::vector<double> cell_death_rate_by_species_; ///< size: M_ * total_num_cells_
+    std::vector<double> cell_birth_rate_;            ///< size: total_num_cells_
+    std::vector<double> cell_death_rate_;            ///< size: total_num_cells_
 
     // Global SoA: Particle data per cell
-    std::vector<std::array<std::vector<std::vector<double>>, DIM>> cell_coords_; ///< [species][dim][cell_idx][particle_idx]
-    std::vector<std::vector<std::vector<double>>> cell_particle_death_rates_;    ///< [species][cell_idx][particle_idx]
+    std::vector<std::vector<double>> cell_coords_;               ///< size: M_ * DIM * total_num_cells_
+    std::vector<std::vector<double>> cell_particle_death_rates_; ///< size: M_ * total_num_cells_
 
     // Working buffers to avoid allocation during events
     std::vector<double> dist_buffer_;

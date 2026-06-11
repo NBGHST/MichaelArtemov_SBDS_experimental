@@ -512,8 +512,8 @@ def run_scenario(scenario_def, is_benchmark=False):
         "birthRates": params.get("birthRates", []),
         "deathRates": params.get("deathRates", []),
         "cutoffs": params.get("cutoffs", []),
-        "sigma_m": params.get("sigma_m", []),
-        "sigma_w": params.get("sigma_w", []),
+        "sigma_m": scenario_def["params"].get("sigma_m", []),
+        "sigma_w": scenario_def["params"].get("sigma_w", []),
         "run_events": run_events
     }
     

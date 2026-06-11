@@ -410,9 +410,10 @@ void Grid<DIM>::spawn_random() {
     //std::discrete_distribution<int> cellDist(cellRateVec.begin(), cellRateVec.end());
     const int parentCellIndex = sample_discrete<true>(cellRateVec, rng_, total_birth_rate_);
     Cell<DIM> &parentCell = cells_[parentCellIndex];
-    std::discrete_distribution<int> spDist(parentCell.cellBirthRateBySpecies.begin(),
-                                           parentCell.cellBirthRateBySpecies.end());
-    const int s = spDist(rng_);
+    //std::discrete_distribution<int> spDist(parentCell.cellBirthRateBySpecies.begin(),
+    //                                       parentCell.cellBirthRateBySpecies.end());
+    //const int s = spDist(rng_);
+    const int s = sample_discrete<true>(parentCell.cellBirthRateBySpecies, rng_, parentCell.cellBirthRate);
     const int parentIdx = std::uniform_int_distribution<int>(0, parentCell.population[s] - 1)(rng_);
     auto &parentPos = parentCell.coords[s][parentIdx];
     const double u = std::uniform_real_distribution<double>(0.0, 1.0)(rng_);

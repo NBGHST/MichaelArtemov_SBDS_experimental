@@ -423,7 +423,7 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
             const int nParticles = static_cast<int>(coords_s2_0.size());
             if (nParticles == 0) return;
 
-            dist_buffer_.resize(nParticles);
+            if (dist_buffer_.size() < static_cast<size_t>(nParticles)) dist_buffer_.resize(nParticles * 2);
 
             if constexpr (DIM == 1) {
                 const double* __restrict__ p0 = coords_s2_0.data();
@@ -435,7 +435,7 @@ if (per) {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff = std::abs(pn0 - p0[j]);
-                        dist_buffer_[j] = diff > half_len0 ? len0 - diff : diff;
+                        dist_buffer_[j] = std::min(diff, len0 - diff);
                     }
                 } else {
 #pragma GCC ivdep
@@ -459,9 +459,9 @@ if (per) {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff0 = std::abs(pn0 - p0[j]);
-                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        diff0 = std::min(diff0, len0 - diff0);
                         double diff1 = std::abs(pn1 - p1[j]);
-                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        diff1 = std::min(diff1, len1 - diff1);
                         dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
                     }
                 } else {
@@ -493,11 +493,11 @@ if (per) {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff0 = std::abs(pn0 - p0[j]);
-                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        diff0 = std::min(diff0, len0 - diff0);
                         double diff1 = std::abs(pn1 - p1[j]);
-                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        diff1 = std::min(diff1, len1 - diff1);
                         double diff2 = std::abs(pn2 - p2[j]);
-                        diff2 = diff2 > half_len2 ? len2 - diff2 : diff2;
+                        diff2 = std::min(diff2, len2 - diff2);
                         dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
                     }
                 } else {
@@ -609,7 +609,7 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
             const int nParticles = static_cast<int>(coords_s2_0.size());
             if (nParticles == 0) return;
 
-            dist_buffer_.resize(nParticles);
+            if (dist_buffer_.size() < static_cast<size_t>(nParticles)) dist_buffer_.resize(nParticles * 2);
 
             if constexpr (DIM == 1) {
                 const double* __restrict__ p0 = coords_s2_0.data();
@@ -621,7 +621,7 @@ if (per) {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff = std::abs(pv0 - p0[j]);
-                        dist_buffer_[j] = diff > half_len0 ? len0 - diff : diff;
+                        dist_buffer_[j] = std::min(diff, len0 - diff);
                     }
                 } else {
 #pragma GCC ivdep
@@ -645,9 +645,9 @@ if (per) {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff0 = std::abs(pv0 - p0[j]);
-                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        diff0 = std::min(diff0, len0 - diff0);
                         double diff1 = std::abs(pv1 - p1[j]);
-                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        diff1 = std::min(diff1, len1 - diff1);
                         dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1);
                     }
                 } else {
@@ -679,11 +679,11 @@ if (per) {
 #pragma GCC ivdep
                     for (int j = 0; j < nParticles; ++j) {
                         double diff0 = std::abs(pv0 - p0[j]);
-                        diff0 = diff0 > half_len0 ? len0 - diff0 : diff0;
+                        diff0 = std::min(diff0, len0 - diff0);
                         double diff1 = std::abs(pv1 - p1[j]);
-                        diff1 = diff1 > half_len1 ? len1 - diff1 : diff1;
+                        diff1 = std::min(diff1, len1 - diff1);
                         double diff2 = std::abs(pv2 - p2[j]);
-                        diff2 = diff2 > half_len2 ? len2 - diff2 : diff2;
+                        diff2 = std::min(diff2, len2 - diff2);
                         dist_buffer_[j] = std::sqrt(diff0*diff0 + diff1*diff1 + diff2*diff2);
                     }
                 } else {

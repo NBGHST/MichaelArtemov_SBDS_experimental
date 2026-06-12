@@ -1,375 +1,177 @@
 # Spatial Birth Death Simulator
 
-Данный репозиторий содержит C++ реализацию симулятора точечного процесса рождения и смерти с явными пространственными взаимодействиями. Вы можете собрать его как расширение для Python и затем импортировать. Для связи двух языков используется Cython.
+This repository contains a high-performance C++ implementation of a spatial birth-death point process simulator with explicit spatial interactions. It is built as a Python extension using Cython, offering C++ execution speeds with Python's accessibility.
 
-Возможности симулятора:
+Simulator Features:
 
-- Создание сеток в 1, 2 или 3 измерениях
-- Настройка интенсивности рождения/смерти и радиальных ядер взаимодействия
-- Задание начальных популяций
-- Запуск стохастических событий (как случайных, так и определённых пользователем)
-- Получение данных на уровне отдельных ячеек (координаты, скорости смерти и т.д.)
-- Анализ пространственных паттернов и динамики популяций
+- Create 1D, 2D, or 3D grids
+- Highly optimized interaction kernels (pre-computed neighbour lists, `distSq` evaluation)
+- Custom birth/death intensities and radial interaction kernels
+- Establish initial populations
+- Trigger stochastic events (random or user-defined)
+- Obtain cell-level granular data (coordinates, death rates, etc.)
+- Spatial pattern and population dynamics analysis
 
 ---
 
-## 1. Структура директорий
+## 1. Directory Structure
 
-Структура директорий проекта выглядит следующим образом:
+The project structure is organized as follows:
 
 ```
 Spatial_Birth_Death_Simulator/
-├── examples/                           # Примеры ноутбуков
+├── examples/                           # Example Jupyter notebooks
 ├── include/
-│   └── SpatialBirthDeath.h             # С++ заголовок с определением классов
+│   └── SpatialBirthDeath.h             # C++ header with class definitions
 ├── src/
-│   └── SpatialBirthDeath.cpp           # С++ реализация симулятора
+│   └── SpatialBirthDeath.cpp           # C++ simulator implementation
 ├── simulation/
-│   ├── __init__.py                     # Инициализация Python пакета
-│   └── SpatialBirthDeathWrapper.pyx    # Cython обертка для C++ кода
+│   ├── __init__.py                     # Python package initialization
+│   └── SpatialBirthDeathWrapper.pyx    # Cython wrapper for the C++ code
+├── tests/                              # Automated testing & benchmarking suite
 ├── .gitignore   
-├── README.md
-├── clean.py                            # Скрипт для очистки сгенерированных файлов
-├── requirements.txt                    # Зависимости
-└── setup.py                            # Скрипт сборки
+├── README.md                           # This file
+├── clean.py                            # Script to clean generated build files
+├── compare_benchmarks.sh               # Run cross-branch performance tests
+├── optimization_summary.md             # Summary of C++ optimizations
+├── requirements.txt                    # Python dependencies
+└── setup.py                            # Build script
 ```
 
 ---
 
-## 2. Сборка расширения
+## 2. Building the Extension
 
-Из основной директории (`Spatial_Birth_Death_Simulator/`) выполните (**или запустите full_setup.sh и дальше запускайте ноутбуки под venv_SBDS**):
+From the root directory (`Spatial_Birth_Death_Simulator/`), execute the following commands (or run `full_setup.sh` and run notebooks under `venv_SBDS`):
 
 ```bash
 pip install -r requirements.txt --break-system-packages
 python setup.py build_ext --inplace
 ```
 
-Это скомпилирует и сгенерирует библиотеку в директории simulation.  
+This compiles and generates the shared library in the `simulation` directory.
 
-Если вы измените любые файлы `.cpp` или `.pyx`, выполните `python setup.py build_ext --inplace` для повторной сборки.
+If you modify any `.cpp` or `.pyx` files, re-run `python setup.py build_ext --inplace` to rebuild.
 
 ---
 
-## 3. Использование скрипта clean.py
+## 3. Automated Testing and Benchmarks
 
-Для удобства в проекте предусмотрен скрипт `clean.py`, который очищает проект от сгенерированного кода. Это позволяет быстро вернуть проект к исходному состоянию.
+This project includes a comprehensive suite of automated tests to ensure deterministic correctness and evaluate performance against baseline branches. 
 
-Из основной директории (`Spatial_Birth_Death_Simulator/`) выполните:
-
+To run the PyTest correctness suite:
 ```bash
-# Сделать скрипт исполняемым (требуется один раз)
-chmod +x clean.py
-
-# Запустить очистку
-./clean.py
+python3 -m pytest tests/test_correctness.py -v
 ```
 
+To compare performance across optimization branches (e.g., `extreme_opt` vs `cpp_opt`):
+```bash
+./compare_benchmarks.sh
+```
+*For detailed information on the test suite, refer to `tests/README.md`.*
+
 ---
 
-## 4. Основное использование из Python
+## 4. Basic Usage from Python
 
-После сборки вы можете импортировать расширение:
+After building, you can import the extension in Python:
 
 ```python
 import sys
-sys.path.append("ваш_путь_до_папки_с_проектом/Spatial_Birth_Death_Simulator")
-import simulation  # или: from simulation import PyGrid1, PyGrid2, PyGrid3
+sys.path.append("your_path_to_project/Spatial_Birth_Death_Simulator")
+import simulation  # or: from simulation import PyGrid1, PyGrid2, PyGrid3
 ```
 
-Для моделирования доступны три Python класса, каждый для своей размерности:
+Three Python classes are available for modeling, one for each dimension:
 
-- **`PyGrid1`**: 1D симулятор
-- **`PyGrid2`**: 2D симулятор
-- **`PyGrid3`**: 3D симулятор
+- **`PyGrid1`**: 1D simulator
+- **`PyGrid2`**: 2D simulator
+- **`PyGrid3`**: 3D simulator
 
+### 4.1 Creating a Grid
 
-### 4.1 Создание сетки
+**Primary Parameters**:
 
-**Основные параметры**:
-
-1. **M** (int): Количество видов.
-2. **areaLen** (список float): Размеры области моделирования по каждому измерению.
-3. **cellCount** (список int): Количество ячеек по каждому измерению. Этот параметр определяет разбиение пространства для оптимизации поиска взаимодействующих частиц. Рекомендуется выбирать значения так, чтобы средний радиус взаимодействия примерно соответствовал 1-3 размерам ячейки.
-4. **isPeriodic** (bool): `True` - периодические граничные условия (частицы, выходящие за край, появляются с противоположной стороны), `False` - поглощающие граничные условия.
-5. **birthRates** (список float длины `M`): Базовые интенсивности рождения для каждого вида.
-6. **deathRates** (список float длины `M`): Базовые интенсивности естественной смерти для каждого вида.
-7. **ddMatrix** (список float длины `M*M`): Развёрнутая матрица парной конкуренции, упорядоченная по строкам. Элемент `ddMatrix[i*M + j]` определяет силу влияния особи вида `i` на смертность особи вида `j`.
-8. **birthX**, **birthY** (список списков float): Данные для определения обратной радиальной функции распределения потомства. Для каждого вида `s`:
-   - **birthX[s]** содержит отсортированные значения вероятности (квантили) в диапазоне `[0,1)`
-   - **birthY[s]** содержит соответствующие радиусы, на которых может появиться потомство
-9. **deathX**, **deathY** (трехуровневый список): Радиальное ядро смерти для каждой пары видов `(s1, s2)`.
-   - **deathX_[s1][s2]** содержит отсортированные значения расстояний между особями (от 0 до максимального радиуса взаимодействия)
-   - **deathY_[s1][s2]** содержит соответствующие значения плотности влияния на этих расстояниях
+1. **M** (int): Number of species.
+2. **areaLen** (list of float): Domain dimensions.
+3. **cellCount** (list of int): Number of cells per dimension. This defines spatial partitioning for optimized neighbour searches. It is recommended to choose values such that the average interaction radius roughly matches 1-3 cell lengths.
+4. **isPeriodic** (bool): `True` - periodic boundary conditions, `False` - absorbing boundary conditions.
+5. **birthRates** (list of float of length `M`): Base birth intensities for each species.
+6. **deathRates** (list of float of length `M`): Base natural death intensities for each species.
+7. **ddMatrix** (list of float of length `M*M`): Flattened row-major matrix of pairwise competition. Element `ddMatrix[i*M + j]` defines the strength of species `i`'s effect on the mortality of species `j`.
+8. **birthX**, **birthY** (list of lists of floats): Data for determining the inverse radial cumulative distribution function (ICDF) for offspring placement. For each species `s`:
+   - **birthX[s]** contains sorted probabilities (quantiles) in range `[0,1)`
+   - **birthY[s]** contains corresponding placement radii
+9. **deathX**, **deathY** (3-level lists): Radial death kernel for each species pair `(s1, s2)`.
+   - **deathX_[s1][s2]** contains sorted distances between individuals (0 to max interaction radius)
+   - **deathY_[s1][s2]** contains corresponding density influence values
    
-   При взаимодействии особей видов `s1` и `s2`, находящихся на расстоянии r друг от друга, влияние рассчитывается методом линейной интерполяции между точками (`deathX_[s1][s2]`, `deathY_[s1][s2]`). Это эффективно реализует пространственное ядро конкурентного влияния.
-10. **cutoffs** (список float длины `M*M`): Расстояния отсечения для взаимодействий каждой пары видов. Список упорядочен по строкам: `cutoffs[i*M + j]` определяет максимальное расстояние, на котором особь вида `i` влияет на особь вида `j`.
-11. **seed** (int): Зерно генератора случайных чисел.
-12. **rtimeLimit** (float): Максимальное ограничение реального времени в секундах для выполнения симуляции.
+   When individuals of species `s1` and `s2` interact at distance $r$, their influence is calculated via linear interpolation between the `(deathX, deathY)` points. 
+10. **cutoffs** (list of float of length `M*M`): Cutoff interaction distances for each species pair.
+11. **seed** (int): RNG seed.
+12. **rtimeLimit** (float): Maximum real-time limit in seconds for the simulation.
 
-### 4.2 Размещение начальных популяций
+### 4.2 Placing Initial Populations
 
-Используйте метод `placePopulation(...)`, который принимает список списков координат:
+Use the `placePopulation(...)` method, which accepts a list of coordinate lists:
 
-- Для 1D каждая точка задается как `[x]`.
-- Для 2D каждая точка задается как `[x, y]`.
-- Для 3D каждая точка задается как `[x, y, z]`.
+- For 1D: `[x]`
+- For 2D: `[x, y]`
+- For 3D: `[x, y, z]`
 
-Вы также можете размещать отдельные особи, используя метод `spawn_at(species_idx, position)`:
+Alternatively, place specific individuals via `spawn_at(species_idx, position)`.
 
-### 4.3 Запуск событий
+### 4.3 Triggering Events
 
-Симулятор предоставляет следующие методы для выполнения событий:
+The simulator provides the following methods for event execution:
 
-- **`make_event()`**: Выполнить одно стохастически выбранное событие рождения или смерти.
-- **`spawn_random()`**: Принудительно выполнить одно случайное событие рождения.
-- **`kill_random()`**: Принудительно выполнить одно случайное событие смерти.
-- **`run_events(n)`**: Последовательно выполнить `n` событий `make_event()`.
-- **`run_for(t)`**: Продолжать выполнение событий, пока время симуляции не достигнет или превысит значение `t`.
+- **`make_event()`**: Execute one stochastically chosen birth or death event.
+- **`spawn_random()`**: Force one random birth event.
+- **`kill_random()`**: Force one random death event.
+- **`run_events(n)`**: Sequentially execute `n` `make_event()` calls.
+- **`run_for(t)`**: Continue executing events until simulation time reaches or exceeds `t`.
 
-Симуляция развивается во времени согласно непрерывному марковскому процессу. Интервалы между событиями имеют экспоненциальное распределение с параметром, равным суммарной интенсивности рождений и смертей в системе.
+### 4.4 Cell Data
 
-### 4.4 Данные ячеек
+For each grid cell, you can extract:
 
-Для каждой ячейки сетки можно узнать:
+- **`get_cell_coords(cell_index, species_idx)`**: Returns coordinate list for this species in this cell.
+- **`get_cell_death_rates(cell_index, species_idx)`**: Returns list of individual death rates.
+- **`get_cell_population(cell_index)`**: Returns list of populations for each species.
+- **`get_cell_birth_rate(cell_index)`** & **`get_cell_death_rate(cell_index)`**: Returns aggregated rates for this cell.
 
-- **`get_cell_coords(cell_index, species_idx)`**: Возвращает список координат для этого вида в этой ячейке.
-- **`get_cell_death_rates(cell_index, species_idx)`**: Возвращает список индивидуальных скоростей смерти.
-- **`get_cell_population(cell_index)`**: Возвращает список с популяцией каждого вида в этой ячейке.
-- **`get_cell_birth_rate(cell_index)`** и **`get_cell_death_rate(cell_index)`**: Возвращают агрегированные скорости для этой ячейки.
+### 4.5 Global Particle Retrieval
 
-Ячейки индексируются от `0` до `total_num_cells - 1`. В 2D или 3D индексация развёрнута в порядке по строкам.
+The **`get_all_particle_coords()`** method returns all positions in a single call, grouped by species.
 
-### 4.5 Получение координат всех частиц и скоростей смерти
-
-Удобный метод **`get_all_particle_coords()`** возвращает все позиции частиц за один вызов, сгруппированные по видам:
-
-- **`PyGrid1`** возвращает `[[x1, x2, ...], [x1, x2, ...], ...]`.
-- **`PyGrid2`** возвращает `[[[x1,y1],[x2,y2],...], [[x1,y1],[x2,y2],...], ...]`.
-- **`PyGrid3`** возвращает `[[[x1,y1,z1],[x2,y2,z2],...], [...], ...]`.
-
-Аналогично, **`get_all_particle_death_rates()`** возвращает скорости смерти для всех частиц, сгруппированные по видам:
-
-- Каждый класс сетки возвращает `[[rate1, rate2, ...], [rate1, rate2, ...], ...]`.
-- Скорости смерти возвращаются в том же порядке, что и координаты от `get_all_particle_coords()`, обеспечивая взаимно-однозначное соответствие между позициями и скоростями.
+Similarly, **`get_all_particle_death_rates()`** returns individual death rates mapped 1-to-1 to the coordinates.
 
 ---
 
-## 5. Определение ядер рождения и смерти
+## 5. Defining Birth and Death Kernels
 
-Симулятор использует **радиально-симметричные** ядра для процессов рождения и смерти, заданные как кусочно-линейные функции `(X, Y)`, которые интерполируются во время выполнения.
+The simulator uses **radially symmetric** kernels for birth and death processes, defined as piecewise-linear functions `(X, Y)` that are interpolated at runtime.
 
-- **Ядра рождения** позволяют симулятору определить, на каком расстоянии от родителя появится новая особь.  
-- **Ядра смерти** определяют, как присутствие соседа на расстоянии `r` влияет на скорость смерти особи.
+### 5.1 Birth Kernels (Inverse Radial CDF)
 
-### 5.1 Ядра рождения (Обратная радиальная функция распределения вероятностей)
+For each species `s`, provide `(birthX[s], birthY[s])` representing the **Inverse Radial CDF** from `[0..1]` to `[0..∞)`:
 
-Для каждого вида `s` необходимо задать пару `(birthX[s], birthY[s])`, представляющую **обратную радиальную функцию распределения** из `[0..1]` в `[0..∞)`:
+1. **`birthX[s]`** - Sorted quantiles `[0..1)`.  
+2. **`birthY[s]`** - Corresponding radii (`ICDF(u)`).
 
-1. **`birthX[s]`** - отсортированный массив квантилей в диапазоне `[0..1)`.  
-2. **`birthY[s]`** - соответствующий массив радиусов, т.е. `ICDF(u)`.
+When a birth event occurs:
+1. Generate uniform random `u ∈ [0,1]`.
+2. Determine radius $r$ via linear interpolation.
+3. Apply a random sign/direction based on dimensionality.
 
-Когда происходит событие рождения вида `s`:
-1. Генерируется равномерное случайное число `u ∈ [0,1]`.
-2. Радиус `r` определяется путем линейной интерполяции `(birthX[s], birthY[s])`.
-3. **Для 1D**: Радиус умножается на случайный знак (+1 или -1), что позволяет новой особи появиться как слева, так и справа от родителя.
-4. **Для 2D/3D**: Радиус комбинируется со случайным направлением (в 2D - угол, в 3D - два угла).
+### 5.2 Death Kernels
 
-#### Пример для 1D (Полунормальное распределение с параметром σ)
+For each pair `(s1, s2)`, provide `(deathX[s1][s2], deathY[s1][s2])` and a **cutoff radius**. The spatial interaction is evaluated linearly between these points.
 
-Используя `scipy.stats.halfnorm` для полунормального распределения ~ N(0,σ):
+**Crucial**: Death kernels must be **normalized** to integrate to 1 over the full spatial domain:
 
-```python
-from scipy.stats import halfnorm
+$$\int_{-\infty}^{\infty} K(x) dx = 1$$
+$$\iint_{-\infty}^{\infty} K(x,y) dx dy = 1$$
+$$\iiint_{-\infty}^{\infty} K(x,y,z) dx dy dz = 1$$
 
-M = 2  # количество видов
-sigma_m = [1.0, 0.8]
-q_values = np.arange(0, 1.0, 0.001)
-
-birth_inverse_values = []
-for i in range(M):
-    inverse_vals = halfnorm.ppf(q_values, scale=sigma_m[i])
-    birth_inverse_values.append(inverse_vals.tolist())
-
-birthX = [q_values.tolist()] * M
-birthY = birth_inverse_values
-```
-
-#### Пример для 2D (Рэлей для стандартного нормального, параметр σ)
-
-2D стандартное нормальное (с каждой осью ~ N(0,σ^2)) имеет распределение Рэлея по радиусу, `rayleigh(scale=sigma)`:
-
-```python
-from scipy.stats import rayleigh
-
-birth_inverse_values = []
-for i in range(M):
-    inverse_vals = rayleigh.ppf(q_values, scale=sigma_m[i])
-    birth_inverse_values.append(inverse_vals.tolist())
-
-birthX = [q_values.tolist()] * M
-birthY = birth_inverse_values
-```
-
-#### Пример для 3D (Максвелла-Больцмана для стандартного нормального, параметр σ)
-
-3D стандартное нормальное ведет к радиальному распределению Максвелла-Больцмана, `maxwell(scale=σ)`:
-
-```python
-from scipy.stats import maxwell
-
-birth_inverse_values = []
-for i in range(M):
-    inverse_vals = maxwell.ppf(q_values, scale=sigma_m[i])
-    birth_inverse_values.append(inverse_vals.tolist())
-
-birthX = [q_values.tolist()] * M
-birthY = birth_inverse_values
-```
-
----
-
-### 5.2 Ядра смерти
-
-Для каждой пары видов `(s1, s2)` нужно задать `(deathX[s1][s2], deathY[s1][s2])` и **максимальный радиус влияния** в `cutoffs[s1*M + s2]`. Когда особи видов `s1` и `s2` находятся на расстоянии `r` друг от друга (не превышающем заданный радиус), вклад в скорость смерти особи вида `s2` составляет `dd[s1][s2] * kernel(r)`, где значение ядра `kernel(r)` вычисляется методом линейной интерполяции между точками `(deathX[s1][s2], deathY[s1][s2])`.
-
-**Важно**: Предполагается, что ядра смерти **нормализованы** при интегрировании по всему пространству соответствующей размерности:
-
-$$\int\limits_{-\infty}^{\infty} K(x) dx = 1$$
-
-$$\iint\limits_{-\infty}^{\infty} K(x,y) dx dy = 1$$
-
-$$\iiint\limits_{-\infty}^{\infty} K(x,y,z) dx dy dz = 1$$
-
-Когда мы нормализуем ядро влияния K(x) так, чтобы его интеграл по всему пространству равнялся единице, это создает важное свойство: суммарное влияние одной особи на всё пространство равно единице.
-
-#### Пример: 1D стандартное нормальное ядро
-
-Для 1D стандартного нормального с σ стандартным отклонением требуется выполнение условия:
-
-$$\int\limits_{-\infty}^{\infty} K(x) dx = 1$$
-
-Возможный радиальный фактор:
-
-$$K(x, \sigma) = \frac{1}{\sqrt{2\pi} \sigma} \exp\Big(-\frac{x^2}{2\sigma^2}\Big)$$
-
-или в радиальной форме:
-
-$$K(r, \sigma) = \frac{1}{\sqrt{2\pi} \sigma} \exp\Big(-\frac{r^2}{2\sigma^2}\Big)$$
-
-где множитель $\frac{1}{\sqrt{2\pi} \sigma}$ обеспечивает нормализацию так, чтобы интеграл по всему пространству был равен 1.
-
-```python
-def normal_1d_radial(r, sigma):
-    return (1 / (np.sqrt(2 * np.pi) * sigma)) * np.exp(-r**2 / (2 * sigma**2))
-
-death_r_values = []
-death_density_values = []
-
-for i in range(M):
-    r_values_row = []
-    density_row = []
-    
-    for j in range(M):
-        r_max = min(10 * sigma_w[i,j], L/2)
-        r_vals = np.linspace(0, r_max, 500)
-        
-        density = normal_1d_radial(r_vals, sigma_w[i, j])
-        
-        r_values_row.append(r_vals.tolist())
-        density_row.append(density.tolist())
-    
-    death_r_values.append(r_values_row)
-    death_density_values.append(density_row)
-
-deathX = death_r_values
-deathY = death_density_values
-
-cutoffs = []
-for i in range(M):
-    for j in range(M):
-        cutoffs.append(min(10 * sigma_w[i,j], L/2))
-```
-
-#### Пример: 2D стандартное нормальное ядро
-
-Для 2D стандартного нормального с σ стандартным отклонением, один допустимый радиальный фактор:
-
-$$K(x,y, \sigma) = \frac{1}{2\pi \sigma^2} \exp\Big(-\frac{x^2+y^2}{2\sigma^2}\Big)$$
-$$K(r, \sigma) = \frac{1}{2\pi \sigma^2} \exp\Big(-\frac{r^2}{2\sigma^2}\Big)$$
-
-так что
-
-$$\iint\limits_{-\infty}^{\infty} K(x,y, \sigma) dx dy = 1$$
-
-Переведите непрерывную функцию в набор точек, ограничив максимальное расстояние значением `r_max`:
-
-```python
-def normal_2d_radial(r, sigma):
-    return (1 / (2 * np.pi * sigma**2)) * np.exp(-r**2 / (2 * sigma**2))
-
-death_r_values = []
-death_density_values = []
-
-for i in range(M):
-    r_values_row = []
-    density_row = []
-    
-    for j in range(M):
-        r_max = min(10 * sigma_w[i,j], L/2)
-        r_vals = np.linspace(0, r_max, 500)
-        
-        density = normal_2d_radial(r_vals, sigma_w[i, j])
-        
-        r_values_row.append(r_vals.tolist())
-        density_row.append(density.tolist())
-    
-    death_r_values.append(r_values_row)
-    death_density_values.append(density_row)
-
-deathX = death_r_values
-deathY = death_density_values
-```
-
-#### Пример: 3D стандартное нормальное ядро
-
-Для 3D стандартного нормального с σ стандартным отклонением требуется выполнение условия:
-
-$$\iiint\limits_{-\infty}^{\infty} K(x,y,z) dx dy dz = 1$$
-
-Возможный радиальный фактор:
-
-$$K(x,y,z, \sigma) = \frac{1}{(2\pi)^{3/2} \sigma^3} \exp\Big(-\frac{x^2+y^2+z^2}{2\sigma^2}\Big)$$
-
-или в радиальной форме:
-
-$$K(r, \sigma) = \frac{1}{(2\pi)^{3/2} \sigma^3} \exp\Big(-\frac{r^2}{2\sigma^2}\Big)$$
-
-где множитель $\frac{1}{(2\pi)^{3/2} \sigma^3}$ обеспечивает нормализацию так, чтобы интеграл по всему пространству был равен 1.
-
-```python
-def normal_3d_radial(r, sigma):
-    return 1 / ((2 * np.pi)**(3/2) * sigma**3) * np.exp(-r**2 / (2 * sigma**2))
-
-death_r_values = []
-death_density_values = []
-
-for i in range(M):
-    r_values_row = []
-    density_row = []
-    
-    for j in range(M):
-        r_max = min(10 * sigma_w[i,j], L/2)
-        r_vals = np.linspace(0, r_max, 500)
-        
-        density = normal_3d_radial(r_vals, sigma_w[i, j])
-        
-        r_values_row.append(r_vals.tolist())
-        density_row.append(density.tolist())
-    
-    death_r_values.append(r_values_row)
-    death_density_values.append(density_row)
-
-deathX = death_r_values
-deathY = death_density_values
-```
+Normalization guarantees that the total influence of a single particle on the infinite space equals exactly one.

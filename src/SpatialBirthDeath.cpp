@@ -30,18 +30,18 @@
 #endif
 
 template<bool known_total>
-inline int sample_discrete(const std::vector<double>& rates, std::mt19937& rng, double total = 0) {
+inline int sample_discrete(const std::vector<double>& rates, double u, double total = 0) {
     if constexpr (!known_total) {
         total = 0.0;
         for (double r : rates) {
             total += r;
         }
     }
-    double u = std::uniform_real_distribution<double>(0.0, total)(rng);
+    double target = u * total;
     double acc = 0.0;
     for (int i = 0; i < (int)rates.size(); ++i) {
         acc += rates[i];
-        if (u < acc) {
+        if (target < acc) {
             return i;
         }
     }
@@ -65,87 +65,7 @@ static bool isUniformSpacing(const std::vector<double>& xdat, double &x0, double
     return true;
 }
 
-#if defined(__AVX2__)
-/**
- * @brief AVX2 batch squared-distance computation for DIM=2, non-periodic.
- *
- * Computes squared distances from point_a to 4 points stored contiguously
- * as [x0,y0, x1,y1, x2,y2, x3,y3].
- * Returns 4 squared distances in a __m256d.
- */
-static inline __m256d batchDistSq2D_nonperiodic(
-    __m256d ax_broadcast, __m256d ay_broadcast,
-    const double* __restrict__ coords_ptr)
-{
-    // Load [x0, y0, x1, y1]
-    __m256d c01 = _mm256_loadu_pd(coords_ptr);
-    // Load [x2, y2, x3, y3]
-    __m256d c23 = _mm256_loadu_pd(coords_ptr + 4);
 
-    // ax_broadcast = [ax, ax, ax, ax], ay_broadcast = [ay, ay, ay, ay]
-    // Interleave: need [ax, ay, ax, ay]
-    __m256d a01 = _mm256_unpacklo_pd(ax_broadcast, ay_broadcast); // [ax, ay, ax, ay]
-    __m256d a23 = a01;
-
-    // diff = a - c
-    __m256d d01 = _mm256_sub_pd(a01, c01);
-    __m256d d23 = _mm256_sub_pd(a23, c23);
-
-    // d^2
-    __m256d dsq01 = _mm256_mul_pd(d01, d01);
-    __m256d dsq23 = _mm256_mul_pd(d23, d23);
-
-    // Horizontal add pairs: [dx0^2+dy0^2, dx1^2+dy1^2, dx2^2+dy2^2, dx3^2+dy3^2]
-    __m256d result = _mm256_hadd_pd(dsq01, dsq23);
-    // After hadd: [dsq0, dsq2, dsq1, dsq3] - need to permute
-    result = _mm256_permute4x64_pd(result, 0b11011000); // [dsq0, dsq1, dsq2, dsq3]
-    return result;
-}
-
-/**
- * @brief AVX2 batch squared-distance computation for DIM=2, periodic.
- */
-static inline __m256d batchDistSq2D_periodic(
-    __m256d ax_broadcast, __m256d ay_broadcast,
-    const double* __restrict__ coords_ptr,
-    __m256d Lx_broadcast, __m256d Ly_broadcast,
-    __m256d halfLx_broadcast, __m256d halfLy_broadcast)
-{
-    __m256d c01 = _mm256_loadu_pd(coords_ptr);
-    __m256d c23 = _mm256_loadu_pd(coords_ptr + 4);
-
-    __m256d a01 = _mm256_unpacklo_pd(ax_broadcast, ay_broadcast);
-    __m256d a23 = a01;
-
-    __m256d d01 = _mm256_sub_pd(a01, c01);
-    __m256d d23 = _mm256_sub_pd(a23, c23);
-
-    // Periodic wrapping for d01: interleaved [dx0, dy0, dx1, dy1]
-    __m256d L01 = _mm256_unpacklo_pd(Lx_broadcast, Ly_broadcast);
-    __m256d halfL01 = _mm256_unpacklo_pd(halfLx_broadcast, halfLy_broadcast);
-
-    // If diff > halfL: diff -= L
-    __m256d mask_pos01 = _mm256_cmp_pd(d01, halfL01, _CMP_GT_OQ);
-    d01 = _mm256_sub_pd(d01, _mm256_and_pd(mask_pos01, L01));
-    // If diff < -halfL: diff += L
-    __m256d neg_halfL01 = _mm256_sub_pd(_mm256_setzero_pd(), halfL01);
-    __m256d mask_neg01 = _mm256_cmp_pd(d01, neg_halfL01, _CMP_LT_OQ);
-    d01 = _mm256_add_pd(d01, _mm256_and_pd(mask_neg01, L01));
-
-    // Same for d23
-    __m256d mask_pos23 = _mm256_cmp_pd(d23, halfL01, _CMP_GT_OQ);
-    d23 = _mm256_sub_pd(d23, _mm256_and_pd(mask_pos23, L01));
-    __m256d mask_neg23 = _mm256_cmp_pd(d23, neg_halfL01, _CMP_LT_OQ);
-    d23 = _mm256_add_pd(d23, _mm256_and_pd(mask_neg23, L01));
-
-    __m256d dsq01 = _mm256_mul_pd(d01, d01);
-    __m256d dsq23 = _mm256_mul_pd(d23, d23);
-
-    __m256d result = _mm256_hadd_pd(dsq01, dsq23);
-    result = _mm256_permute4x64_pd(result, 0b11011000);
-    return result;
-}
-#endif  // __AVX2__
 
 template <int DIM>
 Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<int, DIM> &cellCount, bool isPeriodic,
@@ -213,6 +133,46 @@ Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<
         }
     }
 
+    death_interp_sq_.resize(M_);
+    for (int s1 = 0; s1 < M_; ++s1) {
+        death_interp_sq_[s1].resize(M_);
+        for (int s2 = 0; s2 < M_; ++s2) {
+            UniformInterpDataSq &uid = death_interp_sq_[s1][s2];
+            uid.r_sq_0 = 0.0;
+            uid.n = 8192;
+            double max_r = death_x_[s1][s2].back();
+            double max_r_sq = max_r * max_r;
+            if (max_r_sq < 1e-12) {
+                uid.d_r_sq = 1.0;
+                uid.inv_d_r_sq = 1.0;
+                uid.y_data.assign(uid.n, 0.0);
+            } else {
+                uid.d_r_sq = max_r_sq / (uid.n - 1);
+                uid.inv_d_r_sq = 1.0 / uid.d_r_sq;
+                uid.y_data.resize(uid.n);
+                for (int i = 0; i < uid.n; ++i) {
+                    double r_sq = i * uid.d_r_sq;
+                    double r = std::sqrt(r_sq);
+                    uid.y_data[i] = linearInterpolate(death_x_[s1][s2], death_y_[s1][s2], r);
+                }
+            }
+        }
+    }
+
+    birth_interp_.resize(M_);
+    for (int s = 0; s < M_; ++s) {
+        UniformInterpData &uid = birth_interp_[s];
+        uid.n = static_cast<int>(birth_x_[s].size());
+        uid.is_uniform = isUniformSpacing(birth_x_[s], uid.x0, uid.dx);
+        if (uid.is_uniform) {
+            uid.inv_dx = 1.0 / uid.dx;
+        } else {
+            uid.x0 = 0.0;
+            uid.dx = 0.0;
+            uid.inv_dx = 0.0;
+        }
+    }
+
     cutoff_.resize(M_);
     cutoff_sq_.resize(M_);
     for (int s1 = 0; s1 < M_; ++s1) {
@@ -248,9 +208,44 @@ Grid<DIM>::Grid(int M, const std::array<double, DIM> &areaLen, const std::array<
     cell_coords_.resize(M_ * DIM * total_num_cells_);
     cell_particle_death_rates_.resize(M_ * total_num_cells_);
 
+    cell_death_delta_buffer_.assign(total_num_cells_, 0.0);
+    active_cells_.reserve(128); // Pre-allocate some capacity
+
     // Initialize Fenwick trees
     birth_tree_.init(total_num_cells_);
     death_tree_.init(total_num_cells_);
+
+    neighbor_list_.resize(M_);
+    for (int s1 = 0; s1 < M_; ++s1) {
+        neighbor_list_[s1].resize(M_);
+        for (int s2 = 0; s2 < M_; ++s2) {
+            neighbor_list_[s1][s2].resize(total_num_cells_);
+            for (int cIdxFlat = 0; cIdxFlat < total_num_cells_; ++cIdxFlat) {
+                std::array<int, DIM> cIdx;
+                int temp = cIdxFlat;
+                for (int d = 0; d < DIM; ++d) {
+                    cIdx[d] = temp % cell_count_[d];
+                    temp /= cell_count_[d];
+                }
+                
+                auto cullRange = cull_[s1][s2];
+                forNeighbors<DIM>(cIdx, cullRange, [&](const std::array<int, DIM> &nIdx) {
+                    if (!periodic_ && !inDomain(nIdx)) return;
+                    std::array<int, DIM> wrappedNIdx = nIdx;
+                    if (periodic_) {
+                        for (int d = 0; d < DIM; ++d) {
+                            int v = wrappedNIdx[d];
+                            int n = cell_count_[d];
+                            v += n & -(v < 0);
+                            v -= n & -(v >= n);
+                            wrappedNIdx[d] = v;
+                        }
+                    }
+                    neighbor_list_[s1][s2][cIdxFlat].push_back(flattenIdx(wrappedNIdx));
+                });
+            }
+        }
+    }
 }
 
 template <int DIM>
@@ -313,6 +308,12 @@ int Grid<DIM>::cellIdx(const std::array<double, DIM> &pos) const {
 
 template <int DIM>
 double Grid<DIM>::evalBirthKernel(int s, double x) const {
+    const auto &uid = birth_interp_[s];
+    if (uid.is_uniform) {
+        return linearInterpolateUniform(birth_y_[s].data(),
+                                         uid.x0, uid.dx, uid.inv_dx,
+                                         uid.n, x);
+    }
     return linearInterpolate(birth_x_[s], birth_y_[s], x);
 }
 
@@ -325,6 +326,12 @@ double Grid<DIM>::evalDeathKernel(int s1, int s2, double dist) const {
                                          uid.n, dist);
     }
     return linearInterpolate(death_x_[s1][s2], death_y_[s1][s2], dist);
+}
+
+template <int DIM>
+double Grid<DIM>::evalDeathKernelSq(int s1, int s2, double distSq) const {
+    const auto &uid = death_interp_sq_[s1][s2];
+    return linearInterpolateUniform(uid.y_data.data(), uid.r_sq_0, uid.d_r_sq, uid.inv_d_r_sq, uid.n, distSq);
 }
 
 template <int DIM>
@@ -400,6 +407,8 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
     birth_tree_.update(cIdxFlat, b_[s]);
     death_tree_.update(cIdxFlat, d_[s]);
 
+    active_cells_.clear();
+
     for (int s2 = 0; s2 < M_; ++s2) {
         const double cutoff_s_s2 = cutoff_[s][s2];
         const double cutoff_s2_s = cutoff_[s2][s];
@@ -407,22 +416,15 @@ void Grid<DIM>::spawn_at(int s, const std::array<double, DIM> &inPos) {
         const double dd_s2_s = dd_[s2][s];
         auto cullRange = cull_[s][s2];
 
-        forNeighbors<DIM>(cIdx, cullRange, [&](const std::array<int, DIM> &nIdx) {
-            if (!periodic_ && !inDomain(nIdx)) {
-                return;
-            }
-            std::array<int, DIM> wrappedNIdx = nIdx;
-            if (periodic_) {
-                for (int d = 0; d < DIM; ++d) {
-                    wrappedNIdx[d] = (wrappedNIdx[d] % cell_count_[d] + cell_count_[d]) % cell_count_[d];
-                }
-            }
-            int nIdxFlat = flattenIdx(wrappedNIdx);
+        const auto& neighbors = neighbor_list_[s][s2][cIdxFlat];
+        for (int nIdxFlat : neighbors) {
             int s2NIdxFlat = getSpeciesCellIdx(s2, nIdxFlat);
             const auto& coords_s2_0 = cell_coords_[getCoordIdx(s2, 0, nIdxFlat)];
             const int nParticles = static_cast<int>(coords_s2_0.size());
-            if (nParticles == 0) return;
+            if (nParticles == 0) continue;
 
+            __builtin_prefetch(cell_particle_death_rates_[s2NIdxFlat].data(), 1, 3);
+            
             dist_buffer_.resize(nParticles);
 
             if constexpr (DIM == 1) {
@@ -521,17 +523,13 @@ if (per) {
                 }
                 
                 if (distSq <= cutoffSq_s_s2 || distSq <= cutoffSq_s2_s) {
-                    double actual_dist = dist;
-                    if constexpr (DIM > 1) {
-                        actual_dist = std::sqrt(distSq);
-                    }
-                    if (actual_dist <= cutoff_s_s2) {
-                        const double inter_ij = dd_s_s2 * evalDeathKernel(s, s2, actual_dist);
+                    if (distSq <= cutoffSq_s_s2) {
+                        const double inter_ij = dd_s_s2 * evalDeathKernelSq(s, s2, distSq);
                         cell_particle_death_rates_[s2NIdxFlat][j] += inter_ij;
                         delta_neigh += inter_ij;
                     }
-                    if (actual_dist <= cutoff_s2_s) {
-                        const double inter_ji = dd_s2_s * evalDeathKernel(s2, s, actual_dist);
+                    if (distSq <= cutoffSq_s2_s) {
+                        const double inter_ji = dd_s2_s * evalDeathKernelSq(s2, s, distSq);
                         delta_cell += inter_ji;
                     }
                 }
@@ -541,17 +539,29 @@ if (per) {
                 cell_death_rate_by_species_[s2NIdxFlat] += delta_neigh;
                 cell_death_rate_[nIdxFlat] += delta_neigh;
                 total_death_rate_ += delta_neigh;
-                death_tree_.update(nIdxFlat, delta_neigh);
+                if (cell_death_delta_buffer_[nIdxFlat] == 0.0) {
+                    active_cells_.push_back(nIdxFlat);
+                }
+                cell_death_delta_buffer_[nIdxFlat] += delta_neigh;
             }
             if (delta_cell > 0.0) {
                 cell_particle_death_rates_[sCIdxFlat][newIdx] += delta_cell;
                 cell_death_rate_by_species_[sCIdxFlat] += delta_cell;
                 cell_death_rate_[cIdxFlat] += delta_cell;
                 total_death_rate_ += delta_cell;
-                death_tree_.update(cIdxFlat, delta_cell);
+                if (cell_death_delta_buffer_[cIdxFlat] == 0.0) {
+                    active_cells_.push_back(cIdxFlat);
+                }
+                cell_death_delta_buffer_[cIdxFlat] += delta_cell;
             }
-        });
+        }
     }
+    
+    for (int cell : active_cells_) {
+        death_tree_.update(cell, cell_death_delta_buffer_[cell]);
+        cell_death_delta_buffer_[cell] = 0.0;
+    }
+    active_cells_.clear();
 }
 
 template <int DIM>
@@ -597,26 +607,22 @@ void Grid<DIM>::removeInteractionsOfParticle(const std::array<int, DIM> &cIdx, i
     for (int d = 0; d < DIM; ++d) {
         posVictim[d] = cell_coords_[getCoordIdx(sVictim, d, cIdxFlat)][victimIdx];
     }
+    
+    active_cells_.clear();
+
     for (int s2 = 0; s2 < M_; ++s2) {
         const double cutoff_sv_s2 = cutoff_[sVictim][s2];
         const double dd_sv_s2 = dd_[sVictim][s2];
         auto range = cull_[sVictim][s2];
 
-        forNeighbors<DIM>(cIdx, range, [&](const std::array<int, DIM> &nIdx) {
-            if (!periodic_ && !inDomain(nIdx)) {
-                return;
-            }
-            std::array<int, DIM> wrappedNIdx = nIdx;
-            if (periodic_) {
-                for (int d = 0; d < DIM; ++d) {
-                    wrappedNIdx[d] = (wrappedNIdx[d] % cell_count_[d] + cell_count_[d]) % cell_count_[d];
-                }
-            }
-            int nIdxFlat = flattenIdx(wrappedNIdx);
+        const auto& neighbors = neighbor_list_[sVictim][s2][cIdxFlat];
+        for (int nIdxFlat : neighbors) {
             int s2NIdxFlat = getSpeciesCellIdx(s2, nIdxFlat);
             const auto& coords_s2_0 = cell_coords_[getCoordIdx(s2, 0, nIdxFlat)];
             const int nParticles = static_cast<int>(coords_s2_0.size());
-            if (nParticles == 0) return;
+            if (nParticles == 0) continue;
+
+            __builtin_prefetch(cell_particle_death_rates_[s2NIdxFlat].data(), 1, 3);
 
             dist_buffer_.resize(nParticles);
 
@@ -713,15 +719,9 @@ if (per) {
                     distSq = dist * dist;
                 }
                 if (distSq <= cutoffSq_sv_s2) {
-                    double actual_dist = dist;
-                    if constexpr (DIM > 1) {
-                        actual_dist = std::sqrt(distSq);
-                    }
-                    if (actual_dist <= cutoff_sv_s2) {
-                        const double inter_ij = dd_sv_s2 * evalDeathKernel(sVictim, s2, actual_dist);
-                        cell_particle_death_rates_[s2NIdxFlat][j] -= inter_ij;
-                        delta_neigh -= inter_ij;
-                    }
+                    const double inter_ij = dd_sv_s2 * evalDeathKernelSq(sVictim, s2, distSq);
+                    cell_particle_death_rates_[s2NIdxFlat][j] -= inter_ij;
+                    delta_neigh -= inter_ij;
                 }
             }
 
@@ -729,10 +729,19 @@ if (per) {
                 cell_death_rate_by_species_[s2NIdxFlat] += delta_neigh;
                 cell_death_rate_[nIdxFlat] += delta_neigh;
                 total_death_rate_ += delta_neigh;
-                death_tree_.update(nIdxFlat, delta_neigh);
+                if (cell_death_delta_buffer_[nIdxFlat] == 0.0) {
+                    active_cells_.push_back(nIdxFlat);
+                }
+                cell_death_delta_buffer_[nIdxFlat] += delta_neigh;
             }
-        });
+        }
     }
+
+    for (int cell : active_cells_) {
+        death_tree_.update(cell, cell_death_delta_buffer_[cell]);
+        cell_death_delta_buffer_[cell] = 0.0;
+    }
+    active_cells_.clear();
 }
 
 template <int DIM>
@@ -749,9 +758,10 @@ void Grid<DIM>::spawn_random() {
     if (total_birth_rate_ < 1e-12) {
         return;
     }
-    const int parentCellIndex = birth_tree_.sample(rng_, total_birth_rate_);
+    double r = dist_uniform_(rng_) * total_birth_rate_;
+    const int parentCellIndex = birth_tree_.find(r);
     double acc_species = 0.0;
-    const double target_species = std::uniform_real_distribution<double>(0.0, cell_birth_rate_[parentCellIndex])(rng_);
+    const double target_species = dist_uniform_(rng_) * cell_birth_rate_[parentCellIndex];
     int s = 0;
     for (int i = 0; i < M_; ++i) {
         acc_species += cell_birth_rate_by_species_[getSpeciesCellIdx(i, parentCellIndex)];
@@ -768,7 +778,7 @@ void Grid<DIM>::spawn_random() {
     for (int d = 0; d < DIM; ++d) {
         parentPos[d] = cell_coords_[getCoordIdx(s, d, parentCellIndex)][parentIdx];
     }
-    const double u = std::uniform_real_distribution<double>(0.0, 1.0)(rng_);
+    const double u = dist_uniform_(rng_);
     const double radius = evalBirthKernel(s, u);
     auto dir = randomUnitVector(rng_);
     for (int d = 0; d < DIM; ++d) {
@@ -786,9 +796,10 @@ void Grid<DIM>::kill_random() {
     if (total_death_rate_ < 1e-12) {
         return;
     }
-    const int cellIndex = death_tree_.sample(rng_, total_death_rate_);
+    double r = dist_uniform_(rng_) * total_death_rate_;
+    const int cellIndex = death_tree_.find(r);
     double acc_species = 0.0;
-    const double target_species = std::uniform_real_distribution<double>(0.0, cell_death_rate_[cellIndex])(rng_);
+    const double target_species = dist_uniform_(rng_) * cell_death_rate_[cellIndex];
     int s = 0;
     for (int i = 0; i < M_; ++i) {
         acc_species += cell_death_rate_by_species_[getSpeciesCellIdx(i, cellIndex)];
@@ -800,7 +811,7 @@ void Grid<DIM>::kill_random() {
     if (cell_population_[getSpeciesCellIdx(s, cellIndex)] == 0) {
         return;
     }
-    const int victimIdx = sample_discrete<true>(cell_particle_death_rates_[getSpeciesCellIdx(s, cellIndex)], rng_, cell_death_rate_by_species_[getSpeciesCellIdx(s, cellIndex)]);
+    const int victimIdx = sample_discrete<true>(cell_particle_death_rates_[getSpeciesCellIdx(s, cellIndex)], dist_uniform_(rng_), cell_death_rate_by_species_[getSpeciesCellIdx(s, cellIndex)]);
     const std::array<int, DIM> cIdx = unflattenIdx(cellIndex);
     kill_at(s, cIdx, victimIdx);
 }
@@ -812,11 +823,11 @@ void Grid<DIM>::make_event() {
         return;
     }
     ++event_count_;
-    std::exponential_distribution<double> expDist(sumRate);
-    const double dt = expDist(rng_);
+    const double u1 = dist_uniform_(rng_);
+    const double dt = -std::log(u1) / sumRate;
     time_ += dt;
-    const double r = std::uniform_real_distribution<double>(0.0, sumRate)(rng_);
-    const bool isBirth = (r < total_birth_rate_);
+    const double u2 = dist_uniform_(rng_);
+    const bool isBirth = (u2 * sumRate < total_birth_rate_);
     if (isBirth) {
         spawn_random();
     } else {
@@ -827,9 +838,11 @@ void Grid<DIM>::make_event() {
 template <int DIM>
 void Grid<DIM>::run_events(int events) {
     for (int i = 0; i < events; ++i) {
-        if (std::chrono::system_clock::now() > init_time_ + std::chrono::duration<double>(realtime_limit_)) {
-            realtime_limit_reached_ = true;
-            return;
+        if ((i & 0xFF) == 0) {
+            if (std::chrono::system_clock::now() > init_time_ + std::chrono::duration<double>(realtime_limit_)) {
+                realtime_limit_reached_ = true;
+                return;
+            }
         }
         make_event();
     }

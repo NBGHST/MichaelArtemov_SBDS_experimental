@@ -195,10 +195,8 @@ public:
         }
         return sum;
     }
-    
-    int sample(std::mt19937& rng, double total) const {
+    int find(double target) const {
         if (tree.size() <= 1) return 0;
-        double target = std::uniform_real_distribution<double>(0.0, total)(rng);
         int idx = 0;
         int n = static_cast<int>(tree.size()) - 1;
         
@@ -272,6 +270,20 @@ public:
         bool is_uniform;///< Whether this kernel has uniform spacing
     };
     std::vector<std::vector<UniformInterpData>> death_interp_;  ///< [s1][s2]
+    std::vector<UniformInterpData> birth_interp_;               ///< [s]
+
+    struct UniformInterpDataSq {
+        double r_sq_0;
+        double d_r_sq;
+        double inv_d_r_sq;
+        int n;
+        std::vector<double> y_data;
+    };
+    std::vector<std::vector<UniformInterpDataSq>> death_interp_sq_; ///< [s1][s2]
+    std::vector<std::vector<std::vector<std::vector<int>>>> neighbor_list_; ///< [s1][s2][cIdxFlat] -> list of nIdxFlat
+
+    std::vector<double> cell_death_delta_buffer_;
+    std::vector<int> active_cells_;
 
     // Helper for 1D flattened access
     inline int getSpeciesCellIdx(int s, int cIdxFlat) const {
@@ -302,6 +314,7 @@ public:
     int total_population_ = {0};       ///< Total population count across all species
 
     std::mt19937 rng_;       ///< Random number generator
+    std::uniform_real_distribution<double> dist_uniform_{0.0, 1.0};
     double time_ = {0.0};    ///< Simulation time
     int event_count_ = {0};  ///< Total number of events processed
 
@@ -378,6 +391,7 @@ public:
      * @return The kernel value at the given distance
      */
     double evalDeathKernel(int s1, int s2, double dist) const;
+    double evalDeathKernelSq(int s1, int s2, double distSq) const;
 
     /**
      * @brief Create a random unit vector in DIM dimensions.

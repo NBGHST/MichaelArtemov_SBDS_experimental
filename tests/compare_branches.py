@@ -5,13 +5,21 @@ import tempfile
 import json
 import shutil
 
+def get_python():
+    venv_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv_SBDS", "bin", "python3")
+    if os.path.exists(venv_py):
+        return venv_py
+    return sys.executable
+
+py_exec = get_python()
+
 def run_command(cmd, cwd=None):
     print(f"Running: {' '.join(cmd)}")
     subprocess.run(cmd, cwd=cwd, check=True)
 
 def build_and_run(directory, output_file):
     # Copy the worker to the target directory if it's not there
-    for file_name in ["worker_metrics.py", "test_correctness.py", "test_benchmark.py"]:
+    for file_name in ["worker_metrics.py", "test_correctness.py"]:
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
         dst = os.path.join(directory, "tests", file_name)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -19,13 +27,13 @@ def build_and_run(directory, output_file):
             shutil.copy2(src, dst)
 
     # Build extension
-    run_command([sys.executable, "setup.py", "build_ext", "--inplace", "--force", "-j4"], cwd=directory)
+    run_command([py_exec, "setup.py", "build_ext", "--inplace", "--force", "-j4"], cwd=directory)
     
     # Run correctness
-    run_command([sys.executable, "tests/worker_metrics.py", "correctness", "correctness.json"], cwd=directory)
+    run_command([py_exec, "tests/worker_metrics.py", "correctness", "correctness.json"], cwd=directory)
     
     # Run benchmark
-    run_command([sys.executable, "tests/worker_metrics.py", "benchmark", "benchmark.json"], cwd=directory)
+    run_command([py_exec, "tests/worker_metrics.py", "benchmark", "benchmark.json"], cwd=directory)
 
     # Load results
     with open(os.path.join(directory, "correctness.json")) as f:
@@ -78,7 +86,7 @@ def print_comparison(all_results, ref_branch, cur_name):
                 print(f"   ↳ Params: {param_str}")
                 print("-" * 130)
     
-    col_order = ["cpp_opt", "prev_best", cur_name]
+    col_order = ["cpp_opt", "gudit_shumit", cur_name]
     
     def format_rate(r):
         if r > 1e6: return f"{r/1e6:.1f}M"
@@ -95,7 +103,7 @@ def print_comparison(all_results, ref_branch, cur_name):
         header = f"{'Scenario':<40}"
         for b in current_col_order:
             header += f" | {b:<12}"
-        header += f" | Speedup (prev_best vs cpp_opt) | Speedup ({cur_name} vs cpp_opt)"
+        header += f" | Speedup ({cur_name} vs cpp_opt)"
         if "numba_sim" in all_results:
             header += f" | Speedup (numba_sim vs cpp_opt)"
         print(header)
@@ -119,7 +127,6 @@ def print_comparison(all_results, ref_branch, cur_name):
             
             name = ref_results["benchmark"][i]["name"]
             row = f"{name:<40}"
-            ref_rate = ref_results["benchmark"][i]["rate"]
             cpp_rate = all_results.get("cpp_opt", {}).get("benchmark", [{}])[i].get("rate", 0) if "cpp_opt" in all_results else 0
             cur_rate = cur_results["benchmark"][i]["rate"]
             
@@ -136,14 +143,11 @@ def print_comparison(all_results, ref_branch, cur_name):
             if "numba_sim" in current_col_order:
                 numba_idx += 1
 
-            speedup_ref_cpp = ref_rate / cpp_rate if cpp_rate > 0 else 0
             speedup_cur_cpp = cur_rate / cpp_rate if cpp_rate > 0 else 0
             
-            avg_speedup_ref_cpp += speedup_ref_cpp
             avg_speedup_cur_cpp += speedup_cur_cpp
             count += 1
             
-            row += f" | {speedup_ref_cpp:.2f}x"
             row += f" | {speedup_cur_cpp:.2f}x"
             if "numba_sim" in all_results:
                 rate = all_results["numba_sim"]["benchmark"][numba_idx - 1]["rate"]
@@ -153,7 +157,7 @@ def print_comparison(all_results, ref_branch, cur_name):
             
         if count > 0:
             print("-" * 150)
-            avg_str = f"AVERAGE {d}D SPEEDUP (prev_best vs cpp_opt): {avg_speedup_ref_cpp/count:.2f}x | ({cur_name} vs cpp_opt): {avg_speedup_cur_cpp/count:.2f}x"
+            avg_str = f"AVERAGE {d}D SPEEDUP ({cur_name} vs cpp_opt): {avg_speedup_cur_cpp/count:.2f}x"
             if "numba_sim" in all_results:
                 avg_str += f" | (numba_sim vs cpp_opt): {avg_speedup_numba_cpp/count:.2f}x"
             print(avg_str)
@@ -165,8 +169,8 @@ def print_comparison(all_results, ref_branch, cur_name):
         print("\nSUCCESS: All correctness tests match perfectly!")
 
 def main():
-    branches = ["prev_best", "cpp_opt"]
-    cur_branch = "gudit_shumit"
+    branches = ["cpp_opt"]
+    cur_branch = "extreme_opt"
 
     current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     all_results = {}
@@ -183,7 +187,7 @@ def main():
     all_results[cur_branch] = build_and_run(current_dir, "cur_results.json")
 
     print(f"\n--- Running numba_sim benchmarks ---")
-    run_command([sys.executable, "tests/numba_benchmark.py"], cwd=current_dir)
+    run_command([py_exec, "tests/numba_benchmark.py"], cwd=current_dir)
     numba_file = os.path.join(current_dir, "numba_results.json")
     if os.path.exists(numba_file):
         with open(numba_file) as f:
